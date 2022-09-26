@@ -162,8 +162,10 @@
 module pipelined_fpu(
     input   logic          clk,
     input   logic          reset,
+    input   logic  [2:0]   op,
     input   logic          start,
     input   logic  [31:0]  a,
+    input   logic  [31:0]  b,
 
     output  logic          done,
     output  logic          busy,
@@ -176,14 +178,29 @@ module pipelined_fpu(
     logic  [22:0]  a_fraction;
 
 
+    logic          b_sign;
+    logic  [7:0]   b_exponent;
+    logic  [22:0]  b_fraction;
+
+
     logic          a_exponent_zeros;
     logic          a_exponent_ones;
     logic          a_fraction_zeros;
 
 
+    logic          b_exponent_zeros;
+    logic          b_exponent_ones;
+    logic          b_fraction_zeros;
+
+
     logic  [4:0]   a_leading_zeros;
     logic  [23:0]  a_norm_fraction;
     logic  [9:0]   a_norm_exponent;
+
+
+    logic  [4:0]   b_leading_zeros;
+    logic  [23:0]  b_norm_fraction;
+    logic  [9:0]   b_norm_exponent;
 
 
     logic  [24:0]  a_adj_fraction;
@@ -193,6 +210,9 @@ module pipelined_fpu(
 
     logic  [9:0]   imm_exponent;
     logic  [47:0]  imm_fraction;
+
+
+    //logic  [4:0]   leading_zeros;
 
 
     logic  [9:0]   normalized_exponent;
@@ -212,6 +232,9 @@ module pipelined_fpu(
     logic  [24:0]  normalized_2_fraction;
 
 
+    logic          result_sign;
+
+
     logic          fraction_lsb;
     logic          round_bit;
     logic          sticky_bit;
@@ -219,143 +242,176 @@ module pipelined_fpu(
 
     // special case signals
     logic          a_zero;
+    logic          b_zero;
+    logic          abzero;
     logic          zero;
     logic          a_inf;
+    logic          b_inf;
     logic          inf;
     logic          a_nan;
+    logic          b_nan;
     logic          nan;
     logic          nnan;
     logic          signal;
     logic          a_denorm;
+    logic          b_denorm;
     logic          denorm;
     logic          result_over;
     logic          result_denorm;
     logic          result_under;
 
 
-    // test signal remove later
-    logic          test;
-
-
     always_comb begin
-       // unpack fields
-       a_sign           = a[31];
-       a_exponent       = a[30:23];
-       a_fraction       = a[22:0];
+        // unpack fields
+        a_sign           = a[31];
+        a_exponent       = a[30:23];
+        a_fraction       = a[22:0];
 
-       // do checks on exponent and fraction
-       a_exponent_zeros = ~|a_exponent;
-       a_exponent_ones  =  &a_exponent;
-       a_fraction_zeros = ~|a_fraction;
-
-       // check for special cases
-       a_zero           = a_exponent_zeros  & a_fraction_zeros;
-       zero             = a_zero;
-
-       a_inf            = a_exponent_ones   & a_fraction_zeros;
-       inf              = a_inf;
-
-       a_nan            = a_exponent_ones   & ~a_fraction_zeros;
-       nan              = (~a_sign & a_nan);
-       nnan             = (a_sign  & a_nan);
-       signal           = ~a_fraction[22];
-
-       a_denorm         = a_exponent_zeros  & ~a_fraction_zeros;
-       denorm           = a_denorm;            // if we don't handle denormalized numbers then if this signal is active it could trigger an exception.
+        b_sign           = b[31];
+        b_exponent       = b[30:23];
+        b_fraction       = b[22:0];
 
 
-       // normalize operands
-       a_norm_fraction  = {1'b1, a_fraction};  // always set leading bit to 1, this is because we treat denormals as zero.
-       a_norm_exponent  = a_exponent;          // always set the exponent to the input value instead of 1 in the case of denormals.
+        // do checks on exponent and fraction
+        a_exponent_zeros = ~|a_exponent;
+        a_exponent_ones  =  &a_exponent;
+        a_fraction_zeros = ~|a_fraction;
 
-       // adjust operands // the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and adjust it and the fraction if it's not.
-       a_adj_fraction   = (a_norm_exponent[0]) ? {1'b0, a_norm_fraction} : {a_norm_fraction, 1'b0};    // if exponent is odd then right shift the fraction by one bit, else don't.
-       a_adj_exponent   = ({a_norm_exponent[9], a_norm_exponent[9:1]} + 10'd63) + a_norm_exponent[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
-
-       // find the sqrt of the fraction
-       imm_fraction     = {1'b0, fract_sqrt};
-       imm_exponent     = a_adj_exponent;
+        b_exponent_zeros = ~|b_exponent;
+        b_exponent_ones  =  &b_exponent;
+        b_fraction_zeros = ~|b_fraction;
 
 
-       // the sticky bit should be calculated here before normalization so that we
-       // preserve the information from the last bit of the fraction before it is
-       // right shifted and lost.
+        // check for special cases
+        a_zero   = a_exponent_zeros  & a_fraction_zeros;
+        b_zero   = b_exponent_zeros  & b_fraction_zeros;
+        a_inf    = a_exponent_ones   & a_fraction_zeros;
+        b_inf    = b_exponent_ones   & b_fraction_zeros;
+        a_nan    = a_exponent_ones   & ~a_fraction_zeros;
+        b_nan    = b_exponent_ones   & ~b_fraction_zeros;
+        a_denorm = a_exponent_zeros  & ~a_fraction_zeros;
+        b_denorm = b_exponent_zeros  & ~b_fraction_zeros;
+
+        if(op == 3'd3) begin            // for the single input square root function
+            zero   = a_zero;
+            inf    = a_inf;
+            nan    = (~a_sign & a_nan);
+            nnan   = (a_sign  & a_nan);
+            signal = ~a_fraction[22];
+            denorm = a_denorm;          // if we don't handle denormalized numbers then if this signal is active it could trigger an exception.
+        end else begin                  // for everything else
+            zero   = a_zero | b_zero;
+            inf    = a_inf  | b_inf;
+            nan    = (~a_sign & a_nan) | (~b_sign & b_nan);
+            nnan   = (a_sign  & a_nan) | (b_sign  & b_nan);
+            signal = ~a_fraction[22] | ~b_fraction[22];
+            denorm = a_denorm | b_denorm; // if we don't handle denormalized numbers then if this signal is active it could trigger an exception.
+        end
 
 
-       // pre rounding normalization (not needed here)
-       //if(~imm_fraction[46]) begin // number needs to be normalized left shift by 1
-           //normalized_fraction = imm_fraction << 1;
-           //normalized_exponent = imm_exponent - 10'd1;
-       //end else begin              // number already normalized
-           normalized_fraction = imm_fraction;
-           normalized_exponent = imm_exponent;
-       //end
+        // normalize operands
+        a_norm_fraction = {1'b1, a_fraction};  // always set leading bit to 1, this is because we treat denormals as zero.
+        b_norm_fraction = {1'b1, b_fraction};  // always set leading bit to 1, this is because we treat denormals as zero.
+        a_norm_exponent = a_exponent;          // always set the exponent to the input value instead of 1 in the case of denormals.
+        b_norm_exponent = b_exponent;          // always set the exponent to the input value instead of 1 in the case of denormals.
 
 
-       //denormalize_shift_count = (10'd1 - normalized_exponent) <= 5'd24 ? (10'd1 - normalized_exponent) : 5'd24;
+        // this is for the square root operation only
+        // adjust operands // the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and adjust it and the fraction if it's not.
+        a_adj_fraction  = (a_norm_exponent[0]) ? {1'b0, a_norm_fraction} : {a_norm_fraction, 1'b0};    // if exponent is odd then right shift the fraction by one bit, else don't.
+        a_adj_exponent  = ({a_norm_exponent[9], a_norm_exponent[9:1]} + 10'd63) + a_norm_exponent[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
 
 
-       // denormalize value if exponent <= 0 and exponent >= -23 (not needed here)
-       //if(normalized_exponent == 10'd0 || (normalized_exponent <= 10'd1023 && normalized_exponent >= 10'd1001)) begin
-           //denormalized_fraction = normalized_fraction >> denormalize_shift_count;
-           //denormalized_exponent = normalized_exponent +  denormalize_shift_count;
-       //end else begin
-           denormalized_fraction = normalized_fraction;
-           denormalized_exponent = normalized_exponent;
-       //end
+        // do calculation
+        if(op == 3'd3) begin // find the sqrt of the fraction
+            imm_exponent = a_adj_exponent;
+            imm_fraction = {1'b0, fract_sqrt};
+        end else begin       // add exponents and multiply fractions
+            imm_exponent = (unsigned'(a_norm_exponent) + unsigned'(b_norm_exponent)) - 10'd127;
+            imm_fraction =  unsigned'(a_norm_fraction) * unsigned'(b_norm_fraction);
+        end
 
 
-       // result rounding
-       fraction_lsb        = denormalized_fraction[23]; // the least significant bit of the fraction, it is used for rounding to the nearest even
-       round_bit           = denormalized_fraction[22];
-       sticky_bit          = |denormalized_fraction[21:0];
-
-       rounded_exponent    = denormalized_exponent;
-
-       casex({fraction_lsb, round_bit, sticky_bit})
-           3'b?00,
-           3'b?01,
-           3'b010: rounded_fraction = {1'b0, denormalized_fraction[46:23]};
-           
-           3'b110,
-           3'b?11: rounded_fraction = denormalized_fraction[46:23] + 24'd1;
-       endcase
-
-       // post rounding normalization
-       normalized_2_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
-       normalized_2_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
-
-       // check for overflow, underflow, ect here
-       result_over   = (normalized_2_exponent >=  10'd255 && normalized_2_exponent <=  10'd511);
-       result_denorm = ~normalized_2_fraction[23];
-       result_under  = (normalized_2_exponent <= -10'd24  && normalized_2_exponent >= -10'd512);
+        // the sticky bit should be calculated here before normalization so that we
+        // preserve the information from the last bit of the fraction before it is
+        // right shifted and lost.
 
 
-       // testing signal
-       test = result_denorm & done;
+        // pre rounding normalization
+        if(imm_fraction[47]) begin // number overflowed right shift by 1
+            normalized_fraction = imm_fraction >> 1;
+            normalized_exponent = imm_exponent + 10'd1;
+        end else begin              // number already normalized
+            normalized_fraction = imm_fraction;
+            normalized_exponent = imm_exponent;
+        end
 
 
-       // select final result and pack fields
-       casex({nnan, result_denorm, nan, result_under, result_over, zero|denorm, inf})
-           7'b0?0??01: begin
-                           if(a_sign)
-                               result = {1'b1, 8'd255, 1'b1, 22'd0};                                 // -1.#IND
-                           else
-                               result = {1'b0, 8'd255, 23'b0};                                       // +infinity
-                       end
-           7'b0?0??10: result = {a_sign, 8'b0,   23'b0};                                              // +/- zero
+        //denormalize_shift_count = (10'd1 - normalized_exponent) <= 5'd24 ? (10'd1 - normalized_exponent) : 5'd24;
 
-           // the result can never overflow, underflow or be denormalized so I removed those conditions here
 
-           7'b0?1????: result = {1'b0, 8'd255, 1'b1, a_fraction[21:0]};                               // NaN
-           7'b1?0????: result = {1'b1, 8'd255, 1'b1, a_fraction[21:0]};                               // negative quiet not a number (following x86 standards)
-           default:    begin
-                           if(a_sign)
-                               result = {1'b1, 8'd255, 1'b1, 22'd0}; // -1.#IND
-                           else
-                               result = {1'b0, normalized_2_exponent[7:0], normalized_2_fraction[22:0]}; // normal result
-                       end
-       endcase
+        // denormalize value if exponent <= 0 and exponent >= -23 (not needed here)
+        //if(normalized_exponent == 10'd0 || (normalized_exponent <= 10'd1023 && normalized_exponent >= 10'd1001)) begin
+            //denormalized_fraction = normalized_fraction >> denormalize_shift_count;
+            //denormalized_exponent = normalized_exponent +  denormalize_shift_count;
+        //end else begin
+            denormalized_fraction = normalized_fraction;
+            denormalized_exponent = normalized_exponent;
+        //end
+
+
+        // result rounding
+        fraction_lsb     = denormalized_fraction[23]; // the least significant bit of the fraction, it is used for rounding to the nearest even
+        round_bit        = denormalized_fraction[22];
+        sticky_bit       = |denormalized_fraction[21:0];
+
+        rounded_exponent = denormalized_exponent;
+
+        casex({fraction_lsb, round_bit, sticky_bit})
+            3'b?00,
+            3'b?01,
+            3'b010: rounded_fraction = {1'b0, denormalized_fraction[46:23]};
+
+            3'b110,
+            3'b?11: rounded_fraction = denormalized_fraction[46:23] + 24'd1;
+        endcase
+
+
+        // post rounding normalization
+        normalized_2_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
+        normalized_2_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
+
+
+        // result sign calculation
+        result_sign = a_sign ^ b_sign;
+
+
+        // check for overflow, underflow, ect here
+        result_over   = (normalized_2_exponent >=  10'd255 && normalized_2_exponent <=  10'd511);
+        result_denorm = (normalized_2_exponent == 10'd0 || (normalized_2_exponent <=  -10'd1 && normalized_2_exponent >= -10'd23)); // ~normalized_2_fraction[23];
+        result_under  = (normalized_2_exponent <= -10'd24  && normalized_2_exponent >= -10'd512);
+
+
+        // select final result and pack fields
+        casex({nnan, result_denorm, nan, result_under, result_over, zero | denorm, inf})
+            7'b0?0??01: result = (op == 3'd3) ? (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                     // sqrt: if a_sign is 1 then -1.#IND
+                                                         : {1'b0, 8'd255, 23'b0}                                           // sqrt: if a_sign is 0 then +infinity
+                                              : {result_sign, 8'd255, 23'b0};                                              // mul:  (num * infinity) = infinity
+            7'b0?0??10: result = (op == 3'd3) ? {a_sign,      8'b0, 23'b0}                                                 // sqrt: +/- zero
+                                              : {result_sign, 8'b0, 23'b0};                                                // mul:  (num * zero) = zero
+            7'b1?1????: result = {a_sign,      8'd255, 1'b1, a_fraction[21:0]};                                            // (NaN * 1NaN)
+            7'b0?0??11: result = {1'b1,        8'd255, 23'b10000000000000000000000};                                       // (zero * infinity) = quiet not a number
+            7'b0?01000: result = {result_sign, 8'd0,   23'b0};                                                             // underflow = zero
+            7'b0000100: result = {result_sign, 8'd255, 23'b0};                                                             // overflow = infinity
+            7'b0?1????: result = (op == 3'd3) ? {1'b0, 8'd255, 1'b1, a_fraction[21:0]}                                     // sqrt: quiet not a number (following x86 standards)
+                                              : {1'b0, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};       // mul:  quiet not a number (following x86 standards)
+            7'b1?0????: result = (op == 3'd3) ? {1'b1, 8'd255, 1'b1, a_fraction[21:0]}                                     // sqrt: negative quiet not a number (following x86 standards)
+                                              : {1'b1, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            7'b0100000: result = {result_sign, 8'd0, 23'b0};                                                               // denormalized result (treat as zero)
+            default:    result = (op == 3'd3) ? (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                     // sqrt: a_sign == 1 then -1.#IND
+                                                         : {1'b0, normalized_2_exponent[7:0], normalized_2_fraction[22:0]} // sqrt: a_sign == 0 then normal result
+                                              : {result_sign, normalized_2_exponent[7:0], normalized_2_fraction[22:0]};    // mult: normal result
+        endcase
     end
 
 
@@ -363,8 +419,8 @@ module pipelined_fpu(
     multi_norm_sqrt(
         .clk,
         .reset,
-        .start,
-        .radicand_in    (a_adj_fraction),
+        .start         (op == 3'd3 & start),
+        .radicand_in   (a_adj_fraction),
         .busy,
         .done,
         .root          (fract_sqrt),
