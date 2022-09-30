@@ -23,28 +23,39 @@ add wave -noupdate /pipelined_fpu_tb/dut/a_fraction_zeros
 add wave -noupdate /pipelined_fpu_tb/dut/b_exponent_zeros
 add wave -noupdate /pipelined_fpu_tb/dut/b_exponent_ones
 add wave -noupdate /pipelined_fpu_tb/dut/b_fraction_zeros
-add wave -noupdate /pipelined_fpu_tb/dut/a_leading_zeros
 add wave -noupdate /pipelined_fpu_tb/dut/a_norm_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/a_norm_exponent
-add wave -noupdate /pipelined_fpu_tb/dut/b_leading_zeros
 add wave -noupdate /pipelined_fpu_tb/dut/b_norm_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/b_norm_exponent
+add wave -noupdate /pipelined_fpu_tb/dut/exponent_less
+add wave -noupdate /pipelined_fpu_tb/dut/exponent_equal
+add wave -noupdate /pipelined_fpu_tb/dut/fraction_less
+add wave -noupdate /pipelined_fpu_tb/dut/operand_swap
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_sign_a
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_sign_b
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_exponent_a
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_exponent_b
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_fraction_a
+add wave -noupdate /pipelined_fpu_tb/dut/sorted_fraction_b
+add wave -noupdate -radix unsigned /pipelined_fpu_tb/dut/equalized_shift_count
+add wave -noupdate /pipelined_fpu_tb/dut/equalized_fraction_b
 add wave -noupdate /pipelined_fpu_tb/dut/a_adj_fraction
-add wave -noupdate /pipelined_fpu_tb/dut/a_adj_exponent
-add wave -noupdate /pipelined_fpu_tb/dut/fract_sqrt
+add wave -noupdate /pipelined_fpu_tb/dut/root
+add wave -noupdate /pipelined_fpu_tb/dut/quotient
+add wave -noupdate /pipelined_fpu_tb/dut/sqrt_rem
+add wave -noupdate /pipelined_fpu_tb/dut/div_rem
 add wave -noupdate /pipelined_fpu_tb/dut/imm_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/imm_fraction
+add wave -noupdate -radix unsigned /pipelined_fpu_tb/dut/imm_leading_zeros
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_fraction
-add wave -noupdate /pipelined_fpu_tb/dut/denormalize_shift_count
-add wave -noupdate /pipelined_fpu_tb/dut/denormalized_exponent
-add wave -noupdate /pipelined_fpu_tb/dut/denormalized_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/rounded_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/rounded_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_2_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_2_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/result_sign
 add wave -noupdate /pipelined_fpu_tb/dut/fraction_lsb
+add wave -noupdate /pipelined_fpu_tb/dut/guard_bit
 add wave -noupdate /pipelined_fpu_tb/dut/round_bit
 add wave -noupdate /pipelined_fpu_tb/dut/sticky_bit
 add wave -noupdate /pipelined_fpu_tb/dut/a_zero
@@ -65,8 +76,13 @@ add wave -noupdate /pipelined_fpu_tb/dut/denorm
 add wave -noupdate /pipelined_fpu_tb/dut/result_over
 add wave -noupdate /pipelined_fpu_tb/dut/result_denorm
 add wave -noupdate /pipelined_fpu_tb/dut/result_under
+add wave -noupdate /pipelined_fpu_tb/dut/result_zero
+add wave -noupdate /pipelined_fpu_tb/dut/sqrt_busy
+add wave -noupdate /pipelined_fpu_tb/dut/sqrt_done
+add wave -noupdate /pipelined_fpu_tb/dut/div_busy
+add wave -noupdate /pipelined_fpu_tb/dut/div_done
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {200 ps} 0}
+WaveRestoreCursors {{Cursor 1} {749955000 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 295
 configure wave -valuecolwidth 328
@@ -82,4 +98,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {29400112400 ps} {29400115200 ps}
+WaveRestoreZoom {353999774600 ps} {354000133 ns}

@@ -193,14 +193,32 @@ module pipelined_fpu(
     logic          b_fraction_zeros;
 
 
-    logic  [4:0]   a_leading_zeros;
+    //logic  [4:0]   a_leading_zeros;
     logic  [23:0]  a_norm_fraction;
-    logic  [9:0]   a_norm_exponent;
+    logic  [7:0]   a_norm_exponent;
 
 
-    logic  [4:0]   b_leading_zeros;
+    //logic  [4:0]   b_leading_zeros;
     logic  [23:0]  b_norm_fraction;
-    logic  [9:0]   b_norm_exponent;
+    logic  [7:0]   b_norm_exponent;
+
+
+    logic          exponent_less;
+    logic          exponent_equal;
+    logic          fraction_less;
+    logic          operand_swap;
+
+
+    logic          sorted_sign_a;
+    logic          sorted_sign_b;
+    logic  [7:0]   sorted_exponent_a;
+    logic  [7:0]   sorted_exponent_b;
+    logic  [23:0]  sorted_fraction_a;
+    logic  [23:0]  sorted_fraction_b;
+
+
+    logic  [5:0]   equalized_shift_count;
+    logic  [48:0]  equalized_fraction_b;
 
 
     logic  [24:0]  a_adj_fraction;
@@ -211,19 +229,17 @@ module pipelined_fpu(
 
 
     logic  [9:0]   imm_exponent;
-    logic  [47:0]  imm_fraction;
-
-
-    //logic  [4:0]   leading_zeros;
+    logic  [48:0]  imm_fraction;
+    logic  [4:0]   imm_leading_zeros;
 
 
     logic  [9:0]   normalized_exponent;
-    logic  [47:0]  normalized_fraction;
+    logic  [48:0]  normalized_fraction;
     
 
-    logic  [4:0]   denormalize_shift_count;
-    logic  [9:0]   denormalized_exponent;
-    logic  [47:0]  denormalized_fraction;
+    //logic  [4:0]   denormalize_shift_count;
+    //logic  [9:0]   denormalized_exponent;
+    //logic  [47:0]  denormalized_fraction;
 
 
     logic  [9:0]   rounded_exponent;
@@ -262,6 +278,7 @@ module pipelined_fpu(
     logic          result_over;
     logic          result_denorm;
     logic          result_under;
+    logic          result_zero;
 
 
     // busy and done signals
@@ -302,7 +319,7 @@ module pipelined_fpu(
         a_denorm = a_exponent_zeros  & ~a_fraction_zeros;
         b_denorm = b_exponent_zeros  & ~b_fraction_zeros;
 
-        if(op == 3'd3) begin            // for the single input square root function
+        if(op == 3'd4) begin            // for the single input square root function
             zero   = a_zero;
             inf    = a_inf;
             nan    = (~a_sign & a_nan);
@@ -331,21 +348,55 @@ module pipelined_fpu(
         a_adj_fraction  = (a_norm_exponent[0]) ? {1'b0, a_norm_fraction} : {a_norm_fraction, 1'b0};    // if exponent is odd then right shift the fraction by one bit, else don't.
 
 
+        // compare operands to see if we need to swap them
+        exponent_less  = a_norm_exponent <  b_norm_exponent;
+        exponent_equal = a_norm_exponent == b_norm_exponent;
+        fraction_less  = a_norm_fraction <  b_norm_fraction;
+        operand_swap   = exponent_less | (exponent_equal & fraction_less);
+
+
+        // sort operands
+        if(operand_swap) begin
+            {sorted_sign_a, sorted_exponent_a, sorted_fraction_a} = {b_sign, b_norm_exponent, b_norm_fraction};
+            {sorted_sign_b, sorted_exponent_b, sorted_fraction_b} = {a_sign, a_norm_exponent, a_norm_fraction};           
+        end else begin
+            {sorted_sign_a, sorted_exponent_a, sorted_fraction_a} = {a_sign, a_norm_exponent, a_norm_fraction};
+            {sorted_sign_b, sorted_exponent_b, sorted_fraction_b} = {b_sign, b_norm_exponent, b_norm_fraction};
+        end
+
+
+        // equalize exponents
+        equalized_shift_count = (sorted_exponent_a - sorted_exponent_b) <= 5'd26 ? sorted_exponent_a - sorted_exponent_b : 5'd31;
+        equalized_fraction_b  = {1'd0, sorted_fraction_b, 24'd0} >> equalized_shift_count;
+
+
         // do calculation
         casex(op)
-            3'd1:       begin // for multiplication // add exponents and multiply fractions
-                            imm_exponent = (unsigned'(a_norm_exponent) + unsigned'(b_norm_exponent)) - 10'd127;
-                            imm_fraction =  unsigned'(a_norm_fraction) * unsigned'(b_norm_fraction);
+            3'd0:       begin
+                            imm_exponent = sorted_exponent_a;
+                            imm_fraction = (sorted_sign_a ^ sorted_sign_b) ? unsigned'({1'd0, sorted_fraction_a, 24'd0}) - unsigned'(equalized_fraction_b)
+                                                                           : unsigned'({1'd0, sorted_fraction_a, 24'd0}) + unsigned'(equalized_fraction_b);
                         end
 
-            3'd2:       begin // for division
+            3'd1:       begin
+                            imm_exponent = sorted_exponent_a;
+                            imm_fraction = (sorted_sign_a ~^ sorted_sign_b) ? unsigned'({1'd0, sorted_fraction_a, 24'd0}) - unsigned'(equalized_fraction_b)
+                                                                            : unsigned'({1'd0, sorted_fraction_a, 24'd0}) + unsigned'(equalized_fraction_b);
+                        end
+
+            3'd2:       begin // for multiplication // add exponents and multiply fractions
+                            imm_exponent = (unsigned'(a_norm_exponent) + unsigned'(b_norm_exponent)) - 10'd127;
+                            imm_fraction = unsigned'(a_norm_fraction) * unsigned'(b_norm_fraction) << 1;
+                        end
+
+            3'd3:       begin // for division
                             imm_exponent = (unsigned'(a_norm_exponent) - unsigned'(b_norm_exponent)) + 10'd127;
-                            imm_fraction = {1'b0, quotient, 21'd0}; // {root_quotient, 22'd0};
+                            imm_fraction = {1'b0, quotient, 22'd0}; // quotient is 26-bits wide
                         end
 
             default:    begin // for square root // find the sqrt of the fraction
-                            imm_exponent = ({a_norm_exponent[9], a_norm_exponent[9:1]} + 10'd63) + a_norm_exponent[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
-                            imm_fraction = {1'b0, root, 21'd0};
+                            imm_exponent = (a_norm_exponent[7:1] + 10'd63) + a_norm_exponent[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
+                            imm_fraction = {1'b0, root, 22'd0}; // root is 26-bits wide
                         end
         endcase
 
@@ -356,18 +407,18 @@ module pipelined_fpu(
 
 
         // pre rounding normalization
-        casex(imm_fraction[47:46])
+        casex(imm_fraction[48:47])
             2'b1?:      begin // number overflowed right shift by 1
                             normalized_fraction = imm_fraction >> 1;
                             normalized_exponent = imm_exponent + 10'd1;
                         end
-            2'b00:      begin // number underflowed left shift by 1
-                            normalized_fraction = imm_fraction << 1;
-                            normalized_exponent = imm_exponent - 10'd1;
-                        end
-            default:    begin // number already normalized
+            2'b01:      begin // number already normalized
                             normalized_fraction = imm_fraction;
                             normalized_exponent = imm_exponent;
+                        end
+            default:    begin // number underflowed left shift, shifting by more than 1 is only required for addition and subtraction.
+                            normalized_fraction = imm_fraction << imm_leading_zeros;
+                            normalized_exponent = imm_exponent - imm_leading_zeros;
                         end
         endcase
 
@@ -380,34 +431,34 @@ module pipelined_fpu(
             //denormalized_fraction = normalized_fraction >> denormalize_shift_count;
             //denormalized_exponent = normalized_exponent +  denormalize_shift_count;
         //end else begin
-            denormalized_fraction = normalized_fraction;
-            denormalized_exponent = normalized_exponent;
+            //denormalized_fraction = normalized_fraction;
+            //denormalized_exponent = normalized_exponent;
         //end
 
 
         // result rounding
-        fraction_lsb     = denormalized_fraction[23]; // the least significant bit of the fraction, it is used for rounding to the nearest even
-        guard_bit        = denormalized_fraction[22];
-        round_bit        = denormalized_fraction[21];
+        fraction_lsb = normalized_fraction[24]; // the least significant bit of the fraction, it is used for rounding to the nearest even
+        guard_bit    = normalized_fraction[23];
+        round_bit    = normalized_fraction[22];
         casex(op)
-            3'd2:    sticky_bit = |div_rem;
-            3'd3:    sticky_bit = |sqrt_rem;
-            default: sticky_bit = |denormalized_fraction[20:0];
+            3'd3:    sticky_bit = |div_rem;
+            3'd4:    sticky_bit = |sqrt_rem;
+            default: sticky_bit = |normalized_fraction[21:0];
         endcase
 
-        rounded_exponent = denormalized_exponent;
+        rounded_exponent = normalized_exponent;
 
         casex({fraction_lsb, guard_bit, round_bit, sticky_bit})
             4'b?000,
             4'b?001,
             4'b?010,
             4'b?011,
-            4'b0100: rounded_fraction = {1'b0, denormalized_fraction[46:23]};
+            4'b0100: rounded_fraction = {1'b0, normalized_fraction[47:24]};
 
             4'b1100,
             4'b?101,
             4'b?110,
-            4'b?111: rounded_fraction = denormalized_fraction[46:23] + 24'd1;
+            4'b?111: rounded_fraction = normalized_fraction[47:24] + 24'd1;
         endcase
 
 
@@ -417,71 +468,120 @@ module pipelined_fpu(
 
 
         // result sign calculation
-        result_sign = a_sign ^ b_sign;
+        case(op)
+            3'd0:       result_sign = sorted_sign_a;                                    // for add
+            3'd1:       result_sign = (~operand_swap) ? sorted_sign_a : ~sorted_sign_a; // for sub
+            default:    result_sign = a_sign ^ b_sign;                                  // for mul, div
+        endcase
 
 
         // check for overflow, underflow, ect here
         result_over   = (normalized_2_exponent >=  10'd255 && normalized_2_exponent <=  10'd511);
         result_denorm = (normalized_2_exponent == 10'd0 || (normalized_2_exponent <=  -10'd1 && normalized_2_exponent >= -10'd23)); // ~normalized_2_fraction[23];
         result_under  = (normalized_2_exponent <= -10'd24  && normalized_2_exponent >= -10'd512);
+        result_zero   = ~|normalized_2_fraction;
 
 
         // select final result and pack fields
-        casex({nnan, result_denorm, nan, result_under, result_over, zero | denorm, inf})
-            7'b0?0??01: case(op)
-                            3'd2:       begin
-                                            case({a_inf, b_inf})
-                                                2'b10:      result = {result_sign, 8'd255, 23'b0};                        // div: +/- infinity
-                                                2'b01:      result = {result_sign, 8'd0,   23'b0};                        // div: +/- zero
-                                                default:    result = {1'b1, 8'd255, 1'b1, 22'd0};                         // div: -1.#IND
-                                            endcase
-                                        end
-                            3'd3:       result = (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                   // sqrt: if a_sign is 1 then -1.#IND
-                                                          : {1'b0, 8'd255, 23'b0};                                        // sqrt: if a_sign is 0 then +infinity
-                            default:    result = {result_sign, 8'd255, 23'b0};                                            // mul:  (num * infinity) = infinity
-                        endcase
-            7'b0?0??10: case(op)
-                            3'd2:       begin
-                                            case({a_zero, b_zero})
-                                                2'b01:      result = {result_sign, 8'd255, 23'd0};                        // div: +/- infinity
-                                                2'b11:      result = {1'b1, 8'd255, 1'b1, 22'd0};                         // div: -1.#IND
-                                                default:    result = {result_sign, 8'b0, 23'b0};                          // div: +/- zero
-                                            endcase
-                                        end
-                            3'd3:       result = {a_sign,      8'b0, 23'b0};                                              // sqrt: +/- zero
-                            default:    result = {result_sign, 8'b0, 23'b0};                                              // mul:  (num * zero) = zero
-                        endcase
-            7'b1?1????: result = {a_sign,      8'd255, 1'b1, a_fraction[21:0]};                                           // (NaN * 1NaN)
-            7'b0?0??11: case(op)
-                            3'd2:    result = (a_zero & b_inf) ? {result_sign, 8'b0,   23'b0}                             // div: +/- zero
-                                                               : {result_sign, 8'd255, 23'd0};                            // div: +/- infinity
-                            default: result = {1'b1, 8'd255, 23'b10000000000000000000000};                                // mul, sqrt: (zero * infinity) = quiet not a number
-                        endcase
-            7'b0?01000: result = {result_sign, 8'd0,   23'b0};                                                            // underflow = zero
-            7'b0000100: result = {result_sign, 8'd255, 23'b0};                                                            // overflow = infinity
-            7'b0?1????: case(op)
-                            3'd3:    result = {1'b0, 8'd255, 1'b1, a_fraction[21:0]};                                     // sqrt: quiet not a number (following x86 standards)
-                            default: result = {1'b0, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};        // mul, div:  quiet not a number (following x86 standards)
-                        endcase
-            7'b1?0????: case(op)
-                            3'd3:    result = {1'b1, 8'd255, 1'b1, a_fraction[21:0]};                                     // sqrt: negative quiet not a number (following x86 standards)
-                            default: result = {1'b1, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};        // mul, div:  negative quiet not a number (following x86 standards)
-                        endcase
-            7'b0100000: result = {result_sign, 8'd0, 23'b0};                                                              // denormalized result (treat as zero)
-            default:    case(op)
-                            3'd3:    result = (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                      // sqrt: a_sign == 1 then -1.#IND
-                                                       : {1'b0, normalized_2_exponent[7:0], normalized_2_fraction[22:0]}; // sqrt: a_sign == 0 then normal result
-                            default: result = {result_sign, normalized_2_exponent[7:0], normalized_2_fraction[22:0]};     // mult, div: normal result
-                        endcase
+        casex({nnan, result_denorm, nan, result_under, result_over, zero | denorm, inf, result_zero})
+            8'b0?0??01?:    case(op)
+                                3'd0:       begin
+                                                case({a_inf, b_inf})
+                                                    2'b01,
+                                                    2'b10:      result = {result_sign, 8'd255, 23'b0};                           // add: +/- infinity
+                                                    default:    if(sorted_sign_a != sorted_sign_b)
+                                                                    result = {1'b1, 8'd255, 1'b1, 22'd0};                        // add: -1.#IND
+                                                                else
+                                                                    result = {result_sign, 8'd255, 23'b0};                       // add: +/- infinity
+                                                endcase
+                                            end
+                                3'd1:       begin
+                                                case({a_inf, b_inf})
+                                                    2'b01,
+                                                    2'b10:      result = {result_sign, 8'd255, 23'b0};                           // sub: +/- infinity
+                                                    default:    if(sorted_sign_a == sorted_sign_b)
+                                                                    result = {1'b1, 8'd255, 1'b1, 22'd0};                        // sub: -1.#IND
+                                                                else
+                                                                    result = {result_sign, 8'd255, 23'b0};                       // sub: +/- infinity
+                                                endcase
+                                            end
+                                3'd3:       begin
+                                                casex({a_inf, b_inf})
+                                                    2'b10:      result = {result_sign, 8'd255, 23'b0};                           // div: +/- infinity
+                                                    2'b01:      result = {result_sign, 8'd0,   23'b0};                           // div: +/- zero
+                                                    default:    result = {1'b1, 8'd255, 1'b1, 22'd0};                            // div: -1.#IND
+                                                endcase
+                                            end
+                                3'd4:       result = (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                      // sqrt: if a_sign is 1 then -1.#IND
+                                                              : {1'b0, 8'd255, 23'b0};                                           // sqrt: if a_sign is 0 then +infinity
+                                default:    result = {result_sign, 8'd255, 23'b0};                                               // mul:  (num * infinity) = infinity
+                            endcase
+            8'b0?0??10?:    case(op)
+                                3'd0:       begin
+                                                casex({a_zero | a_denorm, b_zero | b_denorm})
+                                                    2'b01:      result = {a_sign, a_exponent, a_fraction};                       // add: a
+                                                    2'b10:      result = {b_sign, b_exponent, b_fraction};                       // add: b
+                                                    default:    result = {a_sign & b_sign, 8'b0,  23'b0};                        // add: zero + zero = zero
+                                                endcase
+                                            end
+                                3'd1:       begin
+                                                casex({a_zero | a_denorm, b_zero | b_denorm})
+                                                    2'b01:      result = {a_sign,  a_exponent, a_fraction};                      // sub: a
+                                                    2'b10:      result = {~b_sign, b_exponent, b_fraction};                      // sub: b
+                                                    default:    result = {a_sign & ~b_sign, 8'b0,  23'b0};                       // sub: zero + zero = zero
+                                                endcase
+                                            end
+                                3'd3:       begin
+                                                casex({a_zero | a_denorm, b_zero | b_denorm})
+                                                    2'b01:      result = {result_sign, 8'd255, 23'd0};                           // div: +/- infinity
+                                                    2'b11:      result = {1'b1, 8'd255, 1'b1, 22'd0};                            // div: -1.#IND
+                                                    default:    result = {result_sign, 8'b0, 23'b0};                             // div: +/- zero
+                                                endcase
+                                            end
+                                3'd4:       result = {a_sign,      8'b0, 23'b0};                                                 // sqrt: +/- zero
+                                default:    result = {result_sign, 8'b0, 23'b0};                                                 // mul:  (num * zero) = zero
+                            endcase
+            8'b1?1?????:    result = {a_sign, 8'd255, 1'b1, a_fraction[21:0]};                                                   // (NaN * 1NaN)
+            8'b0?0??11?:    case(op)
+                                3'd0,
+                                3'd1:       result = {result_sign, 8'd255, 23'd0};                                               // add, sub: +/- infinity
+                                3'd3:       result = ((a_zero | a_denorm) & b_inf) ? {result_sign, 8'b0,   23'b0}                // div: +/- zero
+                                                                      : {result_sign, 8'd255, 23'd0};                            // div: +/- infinity
+                                default:    result = {1'b1, 8'd255, 23'b10000000000000000000000};                                // mul, sqrt: (zero * infinity) = quiet not a number
+                            endcase
+            8'b0?010000:    result = {result_sign, 8'd0,   23'b0};                                                               // underflow = zero
+            8'b00001000:    result = {result_sign, 8'd255, 23'b0};                                                               // overflow = infinity
+            8'b0?1?????:    case(op)
+                                3'd4:       result = {1'b0, 8'd255, 1'b1, a_fraction[21:0]};                                     // sqrt: quiet not a number (following x86 standards)
+                                default:    result = {1'b0, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};        // mul, div:  quiet not a number (following x86 standards)
+                            endcase
+            8'b1?0?????:    case(op)
+                                3'd4:       result = {1'b1, 8'd255, 1'b1, a_fraction[21:0]};                                     // sqrt: negative quiet not a number (following x86 standards)
+                                default:    result = {1'b1, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]};        // add, sub, mul, div:  negative quiet not a number (following x86 standards)
+                            endcase
+            8'b01000000:    result = {result_sign, 8'd0, 23'b0};                                                                 // denormalized result (treat as zero)
+            8'b0?000001:    result = {1'b0, 8'd0, 23'd0};                                                                        // add, sub only?: zero
+            default:        case(op)
+                                3'd4:       result = (a_sign) ? {1'b1, 8'd255, 1'b1, 22'd0}                                      // sqrt: a_sign == 1 then -1.#IND
+                                                              : {1'b0, normalized_2_exponent[7:0], normalized_2_fraction[22:0]}; // sqrt: a_sign == 0 then normal result
+                                default:    result = {result_sign, normalized_2_exponent[7:0], normalized_2_fraction[22:0]};     // add, sub, mult, div: normal result
+                            endcase
         endcase
     end
+
+
+    leading_zeros_detector
+    leading_zeros_detector(
+        .value         (imm_fraction[47:24]), // shouldn't this be 26-bits at the very least?
+        .zeros         (imm_leading_zeros)
+    );
 
 
     multi_norm_divider #(.INWIDTH(24), .OUTWIDTH(26))
     multi_norm_divider(
         .clk,
         .reset,
-        .start         (op == 3'd2 & start),
+        .start         (op == 3'd3 & start),
         .dividend_in   (a_norm_fraction),
         .divisor_in    (b_norm_fraction),
         .busy          (sqrt_busy),
@@ -495,7 +595,7 @@ module pipelined_fpu(
     multi_norm_sqrt(
         .clk,
         .reset,
-        .start         (op == 3'd3 & start),
+        .start         (op == 3'd4 & start),
         .radicand_in   (a_adj_fraction),
         .busy          (div_busy),
         .done          (div_done),

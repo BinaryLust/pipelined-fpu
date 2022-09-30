@@ -63,8 +63,9 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed               = 37388;
+    integer            seed               = 5268791;
     integer            errors             = 0;
+    integer            cycles_per_test    = 300000;
     shortreal          float_a;
     shortreal          float_b;
     shortreal          float_result;
@@ -108,10 +109,147 @@ module pipelined_fpu_tb();
         hardware_reset();
 
 
-        // run the constrained random test for square root
-        repeat(100000) begin
+        // in order to more thoroughly test these functions we need to hand pick values whose outputs will be at the corner cases
+        // like for subtraction we need to pick a value and subtract a value that is 1 fractional bit smaller and bigger from it
+        // in order to make sure we are able to shift the whole 26 bits max range.
+
+
+        // run the constrained random test for addition
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd3;
+            op              = 3'd0;
+            a               = rand_float();
+            b               = rand_float();
+ 
+            @(negedge clk)
+            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
+            float_result    = $bitstoshortreal(result);
+            expected_result = expected();
+ 
+            if(result != expected_result) begin
+                $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g",
+                    float_a,
+                    float_b,
+                    float_result,
+                    $bitstoshortreal(expected_result)
+                );
+                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                errors++;
+            end
+        end
+ 
+
+        // run a completely random test for addition
+        repeat(cycles_per_test) begin
+            @(posedge clk)
+            op              = 3'd0;
+            a               = $urandom();
+            b               = $urandom();
+ 
+            @(negedge clk)
+            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
+            float_result    = $bitstoshortreal(result);
+            expected_result = expected();
+ 
+            if(result != expected_result) begin
+                $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g",
+                    float_a,
+                    float_b,
+                    float_result,
+                    $bitstoshortreal(expected_result)
+                );
+                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                errors++;
+            end
+        end
+
+
+        // run the constrained random test for subtraction
+        repeat(cycles_per_test) begin
+            @(posedge clk)
+            op              = 3'd1;
+            a               = rand_float();
+            b               = rand_float();
+ 
+            @(negedge clk)
+            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
+            float_result    = $bitstoshortreal(result);
+            expected_result = expected();
+ 
+            if(result != expected_result) begin
+                $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g",
+                    float_a,
+                    float_b,
+                    float_result,
+                    $bitstoshortreal(expected_result)
+                );
+                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                errors++;
+            end
+        end
+ 
+
+        // run a completely random test for subtraction
+        repeat(cycles_per_test) begin
+            @(posedge clk)
+            op              = 3'd1;
+            a               = $urandom();
+            b               = $urandom();
+ 
+            @(negedge clk)
+            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
+            float_result    = $bitstoshortreal(result);
+            expected_result = expected();
+ 
+            if(result != expected_result) begin
+                $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g",
+                    float_a,
+                    float_b,
+                    float_result,
+                    $bitstoshortreal(expected_result)
+                );
+                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                errors++;
+            end
+        end
+
+
+        // run the constrained random test for square root
+        repeat(cycles_per_test) begin
+            @(posedge clk)
+            op              = 3'd4;
             start           = 1'b1;
             a               = rand_float();
 
@@ -144,9 +282,9 @@ module pipelined_fpu_tb();
 
 
         // run a completely random test for square root
-        repeat(100000) begin
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd3;
+            op              = 3'd4;
             start           = 1'b1;
             a               = $urandom();
 
@@ -179,9 +317,9 @@ module pipelined_fpu_tb();
 
 
         // run the constrained random test for multiplication
-        repeat(100000) begin
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd1;
+            op              = 3'd2;
             a               = rand_float();
             b               = rand_float();
  
@@ -212,9 +350,9 @@ module pipelined_fpu_tb();
  
 
         // run a completely random test for multiplication
-        repeat(100000) begin
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd1;
+            op              = 3'd2;
             a               = $urandom();
             b               = $urandom();
  
@@ -245,9 +383,9 @@ module pipelined_fpu_tb();
 
 
         // run the constrained random test for division
-        repeat(10000) begin
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd2;
+            op              = 3'd3;
             start           = 1'b1;
             a               = rand_float();
             b               = rand_float();
@@ -282,9 +420,9 @@ module pipelined_fpu_tb();
         end
  
         // run a completely random test for division
-        repeat(10000) begin
+        repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd2;
+            op              = 3'd3;
             start           = 1'b1;
             a               = $urandom();
             b               = $urandom();
@@ -408,65 +546,21 @@ module pipelined_fpu_tb();
 
 
     function logic [31:0] expected();
-        automatic logic          a_sign      = a[31];
-        automatic logic  [7:0]   a_exponent  = a[30:23];
-        automatic logic  [22:0]  a_fraction  = a[22:0];
-
-        automatic logic          b_sign      = b[31];
-        automatic logic  [7:0]   b_exponent  = b[30:23];
-        automatic logic  [22:0]  b_fraction  = b[22:0];
-
-        automatic logic  a_zero      = ~|a_exponent  & ~|a_fraction;
-        automatic logic  b_zero      = ~|b_exponent  & ~|b_fraction;
-        automatic logic  a_inf       = &a_exponent   & ~|a_fraction;
-        automatic logic  b_inf       = &b_exponent   & ~|b_fraction;
-        automatic logic  a_nan       = &a_exponent   & |a_fraction;
-        automatic logic  b_nan       = &b_exponent   & |b_fraction;
-        automatic logic  a_denorm    = ~|a_exponent  & |a_fraction;
-        automatic logic  b_denorm    = ~|b_exponent  & |b_fraction;
-
-        automatic logic  zero        = a_zero | b_zero;
-        automatic logic  inf         = a_inf  | b_inf;
-        automatic logic  nan         = (~a_sign & a_nan) | (~b_sign & b_nan);
-        automatic logic  nnan        = (a_sign  & a_nan) | (b_sign  & b_nan);
-        automatic logic  signal      = ~a_fraction[22] | ~b_fraction[22];
-        automatic logic  denorm      = a_denorm | b_denorm;
-
         automatic logic  [31:0]  temp;
+        automatic logic          a_denorm    = ~|a[30:23]  & |a[22:0];
+        automatic logic          b_denorm    = ~|b[30:23]  & |b[22:0];
+
+
+        float_a = (a_denorm) ? $bitstoshortreal({a[31], 8'd0, 23'd0}) : float_a;
+        float_b = (b_denorm) ? $bitstoshortreal({b[31], 8'd0, 23'd0}) : float_b;
+
 
         casex(op)
-            // multiplication
-            3'd1:       begin
-                            casex({nan, nnan, inf, zero | denorm})
-                                4'b10??: temp = {1'b0, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]}; // quiet not a number (following x86 standards)
-                                4'b01??: temp = {1'b1, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]}; // negative quiet not a number (following x86 standards)
-                                4'b??01: temp = {a[31] ^ b[31], 8'd0, 23'd0};
-                                4'b??11: temp = {1'b1, 8'd255, 23'b10000000000000000000000};
-                                default: temp = $shortrealtobits(float_a * float_b);
-                            endcase
-                        end
-
-            // division
-            3'd2:    begin
-                        casex({nan, nnan, inf, zero | denorm})
-                        4'b10??:    temp = {1'b0, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]}; // quiet not a number (following x86 standards)
-                        4'b01??:    temp = {1'b1, 8'd255, 1'b1, (a_nan) ? a_fraction[21:0] : b_fraction[21:0]}; // negative quiet not a number (following x86 standards)
-                        4'b??01:    begin
-                                        case({a_zero, b_zero})
-                                        2'b01:      temp = {a[31] ^ b[31], 8'd255, 23'd0};                      // div: +/- infinity
-                                        2'b11:      temp = {1'b1, 8'd255, 1'b1, 22'd0};                         // div: -1.#IND
-                                        default:    temp = {a[31] ^ b[31], 8'b0, 23'b0};                        // div: +/- zero
-                                        endcase
-                                    end
-                        4'b??11:    temp = (a_zero & b_inf) ? {a[31] ^ b[31], 8'b0,   23'b0}                    // div: +/- zero
-                                                            : {a[31] ^ b[31], 8'd255, 23'd0};                   // div: +/- infinity
-                        default:    temp = $shortrealtobits(float_a / float_b);
-                        endcase
-                    end
-
-            // square root
-            3'd3:    temp = (a_zero | a_denorm) ? {a[31], 8'd0, 23'd0} : $shortrealtobits($sqrt(float_a)); // if input is denormal we expect 0 as the result, otherwise we expect the square root of the input.
-
+            3'd0:    temp = $shortrealtobits(float_a + float_b);
+            3'd1:    temp = $shortrealtobits(float_a - float_b);
+            3'd2:    temp = $shortrealtobits(float_a * float_b);
+            3'd3:    temp = $shortrealtobits(float_a / float_b);
+            3'd4:    temp = $shortrealtobits($sqrt(float_a));
             default: temp = {1'b0, 8'd0, 23'd0};
         endcase
 
