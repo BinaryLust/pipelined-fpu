@@ -227,25 +227,15 @@ module pipelined_fpu(
     );
 
 
-    typedef  enum  logic  [3:0]
+    typedef  enum  logic  [2:0]
     {
-        NORM      = 4'd0,  // normal
-        ZERO      = 4'd1,  // zero
-        INF       = 4'd2,  // infinite
-        NAN       = 4'd3,  // nan
-        NNAN      = 4'd4,  // nnan
-        SUBN      = 4'd5,  // subnormal
-        ZERO_INF  = 4'd6,  // zero,     infinite
-        ZERO_NAN  = 4'd7,  // zero,     nan
-        ZERO_NNAN = 4'd8,  // zero,     nnan
-        ZERO_SUBN = 4'd9,  // zero,     subnormal
-        INF_NAN   = 4'd10, // infinite, nan
-        INF_NNAN  = 4'd11, // infinite, nnan
-        INF_SUBN  = 4'd12, // infinite, subnormal
-        NAN_NNAN  = 4'd13, // nan,      nnan
-        NAN_SUBN  = 4'd14, // nan,      subnormal
-        NNAN_SUBN = 4'd15  // nnan,     subnormal
-    }   operands;
+        NORMAL    = 3'b00?,
+        ZERO      = 3'b101,
+        INFINITE  = 3'b011,
+        NAN       = 3'b010,
+        SUBNORMAL = 3'b100,
+        DONTCARE  = 3'b???
+    }   operand_types;
 
 
     logic          sign_a;
@@ -268,21 +258,8 @@ module pipelined_fpu(
     logic          fraction_all_zeros_b;
 
 
-    logic          is_zero_a;
-    logic          is_zero_b;
-    logic          is_zero;
-    logic          is_infinite_a;
-    logic          is_infinite_b;
-    logic          is_infinite;
-    logic          is_nan_a;
-    logic          is_nan_b;
-    logic          is_nan;
-    logic          is_nnan;
-    logic          is_exception;
-    logic          is_subnormal_a;
-    logic          is_subnormal_b;
-    logic          is_subnormal;
-    operands       operand_types;
+    operand_types  operand_type_a;
+    operand_types  operand_type_b;
 
 
     logic          exponent_less;
@@ -330,10 +307,14 @@ module pipelined_fpu(
     logic  [24:0]  rounded_fraction;       // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
 
 
+    logic          post_sign;
+    logic  [9:0]   post_exponent;
+    logic  [24:0]  post_fraction;          // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
+
+
     logic          result_sign;
     logic  [9:0]   result_exponent;
     logic  [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
-    logic  [1:0]   result_range;
 
 
     // busy and done signals
@@ -364,51 +345,9 @@ module pipelined_fpu(
         fraction_all_zeros_b = ~|fraction_b;
 
 
-        // check for special cases
-        is_zero_a      = exponent_all_zeros_a & fraction_all_zeros_a;
-        is_zero_b      = exponent_all_zeros_b & fraction_all_zeros_b;
-        is_infinite_a  = exponent_all_ones_a  & fraction_all_zeros_a;
-        is_infinite_b  = exponent_all_ones_b  & fraction_all_zeros_b;
-        is_nan_a       = exponent_all_ones_a  & ~fraction_all_zeros_a;
-        is_nan_b       = exponent_all_ones_b  & ~fraction_all_zeros_b;
-        is_subnormal_a = exponent_all_zeros_a & ~fraction_all_zeros_a;
-        is_subnormal_b = exponent_all_zeros_b & ~fraction_all_zeros_b;
-
-        if(op == 3'd4) begin // for the single input square root function
-            is_zero      = is_zero_a;
-            is_infinite  = is_infinite_a;
-            is_nan       = (~sign_a & is_nan_a);
-            is_nnan      = (sign_a  & is_nan_a);
-            is_exception = ~fraction_a[22];
-            is_subnormal = is_subnormal_a;                  // if we don't handle subnormal numbers then if this signal is active it could trigger an exception.
-        end else begin       // for everything else
-            is_zero      = is_zero_a | is_zero_b;
-            is_infinite  = is_infinite_a | is_infinite_b;
-            is_nan       = (~sign_a & is_nan_a) | (~sign_b & is_nan_b);
-            is_nnan      = (sign_a  & is_nan_a) | (sign_b  & is_nan_b);
-            is_exception = ~fraction_a[22] | ~fraction_b[22];
-            is_subnormal = is_subnormal_a | is_subnormal_b; // if we don't handle subnormal numbers then if this signal is active it could trigger an exception.
-        end
-
-
-        unique case({is_zero, is_infinite, is_nan, is_nnan, is_subnormal})
-            5'b00000: operand_types = NORM;       // normal
-            5'b10000: operand_types = ZERO;       // zero
-            5'b01000: operand_types = INF;        // infinite
-            5'b00100: operand_types = NAN;        // nan
-            5'b00010: operand_types = NNAN;       // nnan
-            5'b00001: operand_types = SUBN;       // subnormal
-            5'b11000: operand_types = ZERO_INF;   // zero,     infinite
-            5'b10100: operand_types = ZERO_NAN;   // zero,     nan
-            5'b10010: operand_types = ZERO_NNAN;  // zero,     nnan
-            5'b10001: operand_types = ZERO_SUBN;  // zero,     subnormal
-            5'b01100: operand_types = INF_NAN;    // infinite, nan
-            5'b01010: operand_types = INF_NNAN;   // infinite, nnan
-            5'b01001: operand_types = INF_SUBN;   // infinite, subnormal
-            5'b00110: operand_types = NAN_NNAN;   // nan,      nnan
-            5'b00101: operand_types = NAN_SUBN;   // nan,      subnormal
-            5'b00011: operand_types = NNAN_SUBN;  // nnan,     subnormal
-        endcase
+        // form the bits for the type of each operand
+        operand_type_a = operand_types'({exponent_all_zeros_a, exponent_all_ones_a, fraction_all_zeros_a});
+        operand_type_b = operand_types'({exponent_all_zeros_b, exponent_all_ones_b, fraction_all_zeros_b});
 
 
         // compare operands to see if we need to exchange them.
@@ -516,142 +455,238 @@ module pipelined_fpu(
 
 
         // do post rounding normalization
-        result_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
-        result_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
+        post_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
+        post_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
 
 
-        // result sign calculation
+        // sign calculation
         case(op)
-            3'd0:    result_sign = sorted_sign_a;                                         // for add
-            3'd1:    result_sign = (~exchange_operands) ? sorted_sign_a : ~sorted_sign_a; // for sub
-            default: result_sign = sign_a ^ sign_b;                                       // for mul, div
+            3'd0:    post_sign = sorted_sign_a;                                         // for add
+            3'd1:    post_sign = (~exchange_operands) ? sorted_sign_a : ~sorted_sign_a; // for sub
+            default: post_sign = sign_a ^ sign_b;                                       // for mul, div
         endcase
 
 
-        // check for overflow, underflow, ect here
-        if(~|result_fraction)
-            result_range = 2'b01; // zero
-        else if(result_exponent >=  10'd255 && result_exponent <=  10'd511)
-            result_range = 2'b10; // overflow
-        else if(result_exponent == 10'd0 || (result_exponent <=  -10'd1 && result_exponent >= -10'd512))
-            result_range = 2'b11; // underflow
-        else
-            result_range = 2'b00; // normal range
+        // set final result values
+        if(~|post_fraction) begin // check for zero
+            // set zero as result
+            result_sign     = 1'b0;
+            result_exponent = 10'd0;
+            result_fraction = 25'd0;
+        end else if(post_exponent >=  10'd255 && post_exponent <=  10'd511) begin // check for overflow
+            // set infinity as result
+            result_sign     = post_sign;
+            result_exponent = 8'd255;
+            result_fraction = 25'd0;
+        end else if(post_exponent == 10'd0 || (post_exponent <=  -10'd1 && post_exponent >= -10'd512)) begin // check for underflow
+            // set zero as result
+            result_sign     = post_sign;
+            result_exponent = 10'd0;
+            result_fraction = 25'd0;
+        end else begin
+            // use actual results
+            result_sign     = post_sign;
+            result_exponent = post_exponent;
+            result_fraction = post_fraction;
+        end
 
 
-            // select final result and pack fields
-        case(operand_types)
+        // select final result and pack fields
+        casex({op, operand_type_a, operand_type_b, sign_a, sign_b})
             // 8'b0?0??01? // is_infinite
-            INF:        // infinite
-                        case(op)
-                            3'd0:       begin
-                                            case({is_infinite_a, is_infinite_b})
-                                                2'b01,
-                                                2'b10:      result = {result_sign, 8'd255, 23'b0};                           // add: +/- infinity
-                                                default:    if(sorted_sign_a != sorted_sign_b)
-                                                                result = {1'b1, 8'd255, 1'b1, 22'd0};                        // add: -1.#IND
-                                                            else
-                                                                result = {result_sign, 8'd255, 23'b0};                       // add: +/- infinity
-                                            endcase
-                                        end
-                            3'd1:       begin
-                                            case({is_infinite_a, is_infinite_b})
-                                                2'b01,
-                                                2'b10:   result = {result_sign, 8'd255, 23'b0};                              // sub: +/- infinity
-                                                default: if(sorted_sign_a == sorted_sign_b)
-                                                             result = {1'b1, 8'd255, 1'b1, 22'd0};                           // sub: -1.#IND
-                                                         else
-                                                             result = {result_sign, 8'd255, 23'b0};                          // sub: +/- infinity
-                                            endcase
-                                        end
-                            3'd3:       begin
-                                            casex({is_infinite_a, is_infinite_b})
-                                                2'b10:   result = {result_sign, 8'd255, 23'b0};                              // div: +/- infinity
-                                                2'b01:   result = {result_sign, 8'd0,   23'b0};                              // div: +/- zero
-                                                default: result = {1'b1, 8'd255, 1'b1, 22'd0};                               // div: -1.#IND
-                                            endcase
-                                        end
-                            3'd4:       result = (sign_a) ? {1'b1, 8'd255, 1'b1, 22'd0}                                      // sqrt: if sign_a is 1 then -1.#IND
-                                                          : {1'b0, 8'd255, 23'b0};                                           // sqrt: if sign_a is 0 then +infinity
-                            default:    result = {result_sign, 8'd255, 23'b0};                                               // mul:  (num * infinity) = infinity
-                        endcase
+            {3'd0, INFINITE,  NORMAL,    1'b?, 1'b?},
+            {3'd0, NORMAL,    INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // add: +/- infinity
+            {3'd0, INFINITE,  INFINITE,  1'b1, 1'b0},
+            {3'd0, INFINITE,  INFINITE,  1'b0, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // add: -1.#IND
+            {3'd0, INFINITE,  INFINITE,  1'b0, 1'b0},
+            {3'd0, INFINITE,  INFINITE,  1'b1, 1'b1}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // add: +/- infinity
+
+            {3'd1, INFINITE,  NORMAL,    1'b?, 1'b?},
+            {3'd1, NORMAL,    INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // sub: +/- infinity
+            {3'd1, INFINITE,  INFINITE,  1'b0, 1'b0},
+            {3'd1, INFINITE,  INFINITE,  1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sub: -1.#IND
+            {3'd1, INFINITE,  INFINITE,  1'b0, 1'b1},
+            {3'd1, INFINITE,  INFINITE,  1'b1, 1'b0}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // sub: +/- infinity
+
+            {3'd2, INFINITE,  NORMAL,    1'b?, 1'b?},
+            {3'd2, NORMAL,    INFINITE,  1'b?, 1'b?},
+            {3'd2, INFINITE,  INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // mul:  (num * infinity) = infinity
+
+            {3'd3, INFINITE,  NORMAL,    1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // div: +/- infinity
+            {3'd3, NORMAL,    INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd0,                  1'b0,                 22'd0};                  // div: +/- zero
+            {3'd3, INFINITE,  INFINITE,  1'b?, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // div: -1.#IND
+
+            {3'd4, INFINITE,  DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: if sign_a is 1 then -1.#IND
+            {3'd4, INFINITE,  DONTCARE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b0,                 22'd0};                  // sqrt: if sign_a is 0 then +infinity
 
             // 8'b0?0??10? // is_zero
-            ZERO,       // zero
-            SUBN,       // subnormal
-            ZERO_SUBN:  // zero,     subnormal
-                        case(op)
-                            3'd0:       begin
-                                            casex({is_zero_a | is_subnormal_a, is_zero_b | is_subnormal_b})
-                                                2'b01:   result = {sign_a, exponent_a, fraction_a};                          // add: a
-                                                2'b10:   result = {sign_b, exponent_b, fraction_b};                          // add: b
-                                                default: result = {sign_a & sign_b, 8'b0,  23'b0};                           // add: zero + zero = zero
-                                            endcase
-                                        end
-                            3'd1:       begin
-                                            casex({is_zero_a | is_subnormal_a, is_zero_b | is_subnormal_b})
-                                                2'b01:   result = {sign_a,  exponent_a, fraction_a};                         // sub: a
-                                                2'b10:   result = {~sign_b, exponent_b, fraction_b};                         // sub: b
-                                                default: result = {sign_a & ~sign_b, 8'b0,  23'b0};                          // sub: zero + zero = zero
-                                            endcase
-                                        end
-                            3'd3:       begin
-                                            casex({is_zero_a | is_subnormal_a, is_zero_b | is_subnormal_b})
-                                                2'b01:   result = {result_sign, 8'd255, 23'd0};                              // div: +/- infinity
-                                                2'b11:   result = {1'b1, 8'd255, 1'b1, 22'd0};                               // div: -1.#IND
-                                                default: result = {result_sign, 8'b0, 23'b0};                                // div: +/- zero
-                                            endcase
-                                        end
-                            3'd4:       result = {sign_a,      8'b0, 23'b0};                                                 // sqrt: +/- zero
-                            default:    result = {result_sign, 8'b0, 23'b0};                                                 // mul:  (num * zero) = zero
-                        endcase
+            {3'd0, NORMAL,    ZERO,      1'b?, 1'b?},
+            {3'd0, NORMAL,    SUBNORMAL, 1'b?, 1'b?}: result = {sign_a,            exponent_a,            fraction_a[22],       fraction_a[21:0]};       // add: a
+            {3'd0, ZERO,      NORMAL,    1'b?, 1'b?},
+            {3'd0, SUBNORMAL, NORMAL,    1'b?, 1'b?}: result = {sign_b,            exponent_b,            fraction_b[22],       fraction_b[21:0]};       // add: b
+            {3'd0, ZERO,      ZERO,      1'b?, 1'b?},
+            {3'd0, SUBNORMAL, SUBNORMAL, 1'b?, 1'b?},
+            {3'd0, ZERO,      SUBNORMAL, 1'b?, 1'b?},
+            {3'd0, SUBNORMAL, ZERO,      1'b?, 1'b?}: result = {sign_a & sign_b,   8'd0,                  1'b0,                 22'd0};                  // add: zero + zero = zero
+
+            {3'd1, NORMAL,    ZERO,      1'b?, 1'b?},
+            {3'd1, NORMAL,    SUBNORMAL, 1'b?, 1'b?}: result = {sign_a,            exponent_a,            fraction_a[22],       fraction_a[21:0]};       // sub: a
+            {3'd1, ZERO,      NORMAL,    1'b?, 1'b?},
+            {3'd1, SUBNORMAL, NORMAL,    1'b?, 1'b?}: result = {~sign_b,           exponent_b,            fraction_b[22],       fraction_b[21:0]};       // sub: b
+            {3'd1, ZERO,      ZERO,      1'b?, 1'b?},
+            {3'd1, SUBNORMAL, SUBNORMAL, 1'b?, 1'b?},
+            {3'd1, ZERO,      SUBNORMAL, 1'b?, 1'b?},
+            {3'd1, SUBNORMAL, ZERO,      1'b?, 1'b?}: result = {sign_a & ~sign_b,  8'd0,                  1'b0,                 22'd0};                  // sub: zero + zero = zero
+
+            {3'd2, NORMAL,    ZERO,      1'b?, 1'b?},
+            {3'd2, NORMAL,    SUBNORMAL, 1'b?, 1'b?},
+            {3'd2, ZERO,      NORMAL,    1'b?, 1'b?},
+            {3'd2, SUBNORMAL, NORMAL,    1'b?, 1'b?},
+            {3'd2, ZERO,      ZERO,      1'b?, 1'b?},
+            {3'd2, SUBNORMAL, SUBNORMAL, 1'b?, 1'b?},
+            {3'd2, ZERO,      SUBNORMAL, 1'b?, 1'b?},
+            {3'd2, SUBNORMAL, ZERO,      1'b?, 1'b?}: result = {result_sign,       8'd0,                  1'b0,                 22'd0};                  // mul:  (num * zero) = zero
+
+            {3'd3, NORMAL,    ZERO,      1'b?, 1'b?},
+            {3'd3, NORMAL,    SUBNORMAL, 1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // div: +/- infinity
+            {3'd3, ZERO,      NORMAL,    1'b?, 1'b?},
+            {3'd3, SUBNORMAL, NORMAL,    1'b?, 1'b?}: result = {result_sign,       8'd0,                  1'b0,                 22'd0};                  // div: +/- zero
+            {3'd3, ZERO,      ZERO,      1'b?, 1'b?},
+            {3'd3, SUBNORMAL, SUBNORMAL, 1'b?, 1'b?},
+            {3'd3, ZERO,      SUBNORMAL, 1'b?, 1'b?},
+            {3'd3, SUBNORMAL, ZERO,      1'b?, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // div: -1.#IND
+
+            {3'd4, ZERO,      DONTCARE,  1'b?, 1'b?},
+            {3'd4, SUBNORMAL, DONTCARE,  1'b?, 1'b?}: result = {sign_a,            8'd0,                  1'b0,                 22'd0};                  // sqrt: +/- zero
 
             // 8'b1?1????? // is_nnan and is_nan
-            NAN_NNAN:   // nan,      nnan
-                        result = {sign_a, 8'd255, 1'b1, fraction_a[21:0]};                                                   // (NaN * 1NaN)
+            {3'd0, NAN,       NAN,       1'b0, 1'b1},
+            {3'd0, NAN,       NAN,       1'b1, 1'b0}: result = {sign_a,            8'd255,                1'b1,                 fraction_a[21:0]};       // add: NaN
+
+            {3'd1, NAN,       NAN,       1'b0, 1'b1},
+            {3'd1, NAN,       NAN,       1'b1, 1'b0}: result = {sign_a,            8'd255,                1'b1,                 fraction_a[21:0]};       // sub: NaN
+
+            {3'd2, NAN,       NAN,       1'b0, 1'b1},
+            {3'd2, NAN,       NAN,       1'b1, 1'b0}: result = {sign_a,            8'd255,                1'b1,                 fraction_a[21:0]};       // mul: NaN
+
+            {3'd3, NAN,       NAN,       1'b0, 1'b1},
+            {3'd3, NAN,       NAN,       1'b1, 1'b0}: result = {sign_a,            8'd255,                1'b1,                 fraction_a[21:0]};       // div: NaN
 
             // 8'b0?0??11? // is_zero and is_infinite
-            ZERO_INF,   // zero,     infinite
-            INF_SUBN:   // infinite, subnormal
-                        case(op)
-                            3'd0,
-                            3'd1:    result = {result_sign, 8'd255, 23'd0};                                                  // add, sub: +/- infinity
-                            3'd3:    result = ((is_zero_a | is_subnormal_a) & is_infinite_b) ? {result_sign, 8'b0,   23'b0}  // div: +/- zero
-                                                                                             : {result_sign, 8'd255, 23'd0}; // div: +/- infinity
-                            default: result = {1'b1, 8'd255, 23'b10000000000000000000000};                                   // mul, sqrt: (zero * infinity) = quiet not a number
-                        endcase
+            {3'd0, ZERO,      INFINITE,  1'b?, 1'b?},
+            {3'd0, INFINITE,  ZERO,      1'b?, 1'b?},
+            {3'd0, SUBNORMAL, INFINITE,  1'b?, 1'b?},
+            {3'd0, INFINITE,  SUBNORMAL, 1'b?, 1'b?},
+            {3'd1, ZERO,      INFINITE,  1'b?, 1'b?},
+            {3'd1, INFINITE,  ZERO,      1'b?, 1'b?},
+            {3'd1, SUBNORMAL, INFINITE,  1'b?, 1'b?},
+            {3'd1, INFINITE,  SUBNORMAL, 1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // add, sub: +/- infinity
+
+            {3'd2, ZERO,      INFINITE,  1'b?, 1'b?},
+            {3'd2, INFINITE,  ZERO,      1'b?, 1'b?},
+            {3'd2, SUBNORMAL, INFINITE,  1'b?, 1'b?},
+            {3'd2, INFINITE,  SUBNORMAL, 1'b?, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // mul: (zero * infinity) = quiet not a number
+
+            {3'd3, ZERO,      INFINITE,  1'b?, 1'b?},
+            {3'd3, SUBNORMAL, INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd0,                  1'b0,                 22'd0};                  // div: +/- zero
+            {3'd3, INFINITE,  ZERO,      1'b?, 1'b?},
+            {3'd3, INFINITE,  SUBNORMAL, 1'b?, 1'b?}: result = {result_sign,       8'd255,                1'b0,                 22'd0};                  // div: +/- infinity
 
             // 8'b0?1????? // is_nan, is_nnan must be zero but doesn't care about anything else.
-            NAN,       // nan
-            ZERO_NAN,  // zero,     nan
-            INF_NAN,   // infinite, nan
-            NAN_SUBN:  // nan,      subnormal
-                        case(op)
-                            3'd4:    result = {1'b0, 8'd255, 1'b1, fraction_a[21:0]};                                        // sqrt: quiet not a number (following x86 standards)
-                            default: result = {1'b0, 8'd255, 1'b1, (is_nan_a) ? fraction_a[21:0] : fraction_b[21:0]};        // mul, div:  quiet not a number (following x86 standards)
-                        endcase
+            {3'd0, NAN,       NAN,       1'b0, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, NORMAL,    NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, NAN,       NORMAL,    1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, ZERO,      NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, NAN,       ZERO,      1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, INFINITE,  NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, NAN,       INFINITE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, SUBNORMAL, NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  quiet not a number (following x86 standards)
+            {3'd0, NAN,       SUBNORMAL, 1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  quiet not a number (following x86 standards)
+
+            {3'd1, NAN,       NAN,       1'b0, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, NORMAL,    NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, NAN,       NORMAL,    1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, ZERO,      NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, NAN,       ZERO,      1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, INFINITE,  NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, NAN,       INFINITE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, SUBNORMAL, NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  quiet not a number (following x86 standards)
+            {3'd1, NAN,       SUBNORMAL, 1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  quiet not a number (following x86 standards)
+
+            {3'd2, NAN,       NAN,       1'b0, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, NORMAL,    NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, NAN,       NORMAL,    1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, ZERO,      NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, NAN,       ZERO,      1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, INFINITE,  NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, NAN,       INFINITE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, SUBNORMAL, NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  quiet not a number (following x86 standards)
+            {3'd2, NAN,       SUBNORMAL, 1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  quiet not a number (following x86 standards)
+
+            {3'd3, NAN,       NAN,       1'b0, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, NORMAL,    NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, NAN,       NORMAL,    1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, ZERO,      NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, NAN,       ZERO,      1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, INFINITE,  NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, NAN,       INFINITE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, SUBNORMAL, NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  quiet not a number (following x86 standards)
+            {3'd3, NAN,       SUBNORMAL, 1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
+
+            {3'd4, NAN,       DONTCARE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sqrt: quiet not a number (following x86 standards)
 
             // 8'b1?0????? // is_nnan, is_nan must be zero but doesn't care about anything else.
-            NNAN,       // nnan
-            ZERO_NNAN,  // zero,     nnan
-            INF_NNAN,   // infinite, nnan
-            NNAN_SUBN:  // nnan,     subnormal
-                        case(op)
-                            3'd4:    result = {1'b1, 8'd255, 1'b1, fraction_a[21:0]};                                        // sqrt: negative quiet not a number (following x86 standards)
-                            default: result = {1'b1, 8'd255, 1'b1, (is_nan_a) ? fraction_a[21:0] : fraction_b[21:0]};        // add, sub, mul, div:  negative quiet not a number (following x86 standards)
-                        endcase
+            {3'd0, NAN,       NAN,       1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, NORMAL,    NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, NAN,       NORMAL,    1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, ZERO,      NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, NAN,       ZERO,      1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, INFINITE,  NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, NAN,       INFINITE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, SUBNORMAL, NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // add:  negative quiet not a number (following x86 standards)
+            {3'd0, NAN,       SUBNORMAL, 1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
 
-            NORM:       // normal
-                        case(result_range)
-                            2'b01:   result = {1'b0, 8'd0, 23'd0};                                                           // result zero add, sub only?: zero
-                            2'b10:   result = {result_sign, 8'd255, 23'b0};                                                  // result overflow = infinity
-                            2'b11:   result = {result_sign, 8'd0,   23'b0};                                                  // result underflow = zero
-                            default: case(op)                                                                                // result normal
-                                         3'd4:    result = (sign_a) ? {1'b1, 8'd255, 1'b1, 22'd0}                            // sqrt: sign_a == 1 then -1.#IND
-                                                                    : {1'b0, result_exponent[7:0], result_fraction[22:0]};   // sqrt: sign_a == 0 then normal result
-                                         default: result = {result_sign, result_exponent[7:0], result_fraction[22:0]};       // add, sub, mult, div: normal result
-                                     endcase
-                        endcase
+            {3'd1, NAN,       NAN,       1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, NORMAL,    NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, NAN,       NORMAL,    1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, ZERO,      NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, NAN,       ZERO,      1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, INFINITE,  NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, NAN,       INFINITE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, SUBNORMAL, NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+            {3'd1, NAN,       SUBNORMAL, 1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sub:  negative quiet not a number (following x86 standards)
+
+            {3'd2, NAN,       NAN,       1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, NORMAL,    NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, NAN,       NORMAL,    1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, ZERO,      NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, NAN,       ZERO,      1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, INFINITE,  NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, NAN,       INFINITE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, SUBNORMAL, NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+            {3'd2, NAN,       SUBNORMAL, 1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // mul:  negative quiet not a number (following x86 standards)
+
+            {3'd3, NAN,       NAN,       1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, NORMAL,    NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, NAN,       NORMAL,    1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, ZERO,      NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, NAN,       ZERO,      1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, INFINITE,  NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, NAN,       INFINITE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, SUBNORMAL, NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  negative quiet not a number (following x86 standards)
+            {3'd3, NAN,       SUBNORMAL, 1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
+
+            {3'd4, NAN,       DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sqrt: negative quiet not a number (following x86 standards)
+
+            // normal results
+            {3'd0, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // add: normal result
+            {3'd1, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // sub: normal result
+            {3'd2, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // mult: normal result
+            {3'd3, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // div: normal result
+            {3'd4, NORMAL,    DONTCARE,  1'b0, 1'b?}: result = {1'b0,              result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // sqrt: sign_a == 0 then normal result
+            {3'd4, NORMAL,    DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: sign_a == 1 then -1.#IND
+
+            default:                                  result = {1'b0,              8'd0,                  1'b0,                 22'd0};                  // zero
         endcase
     end
 
