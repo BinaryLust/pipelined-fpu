@@ -2,6 +2,7 @@
 
 -sv 
 
+../rtl/packages.sv
 ../rtl/control_logic.sv
 ../rtl/multi_norm_combined.sv
 ../rtl/sub_zeros_detector.sv
@@ -10,6 +11,7 @@
 ../rtl/left_shifter.sv
 ../rtl/operand_exchanger.sv
 ../rtl/rounding_logic.sv
+../rtl/result_multiplexers.sv
 ../rtl/pipelined_fpu.sv
 pipelined_fpu_tb.sv
 
