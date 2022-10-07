@@ -276,8 +276,11 @@ module pipelined_fpu(
     logic  [23:0]  sorted_fraction_b;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
 
 
+    logic  [47:0]  right_shifter_result;
+
+
     logic          align_shift_count_a;
-    logic  [5:0]   align_shift_count_b;
+    logic  [4:0]   align_shift_count_b;
     logic  [24:0]  aligned_fraction_a;     // is [x.xxxx....] format with 1 integer bit,  24 fractional bits
     logic  [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
@@ -290,6 +293,9 @@ module pipelined_fpu(
 
     logic  [9:0]   calculated_exponent;
     logic  [48:0]  calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+
+
+    logic  [48:0]  left_shifter_result;
 
 
     logic  [9:0]   normalized_exponent;
@@ -372,7 +378,7 @@ module pipelined_fpu(
         align_shift_count_a = (op == 3'd4) & exponent_a[0];  // this is for the square root operation only. the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and adjust it and the fraction if it's not.
         align_shift_count_b = ((op == 3'd0) | (op == 3'd1)) ? ((sorted_exponent_a - sorted_exponent_b) <= 5'd26) ? sorted_exponent_a - sorted_exponent_b : 5'd31 : 5'd0;; // this is for addition and subtraction operations only.
         aligned_fraction_a  = (align_shift_count_a) ? {1'b0, sorted_fraction_a} : {sorted_fraction_a, 1'b0};                                                              // if exponent is odd then right shift the fraction by one bit, else don't.
-        aligned_fraction_b  = {1'd0, sorted_fraction_b, 24'd0} >> align_shift_count_b;
+        aligned_fraction_b  = {1'b0, right_shifter_result};
         // aligned_exponent_a = 
         // aligned_exponent_b =
 
@@ -419,7 +425,7 @@ module pipelined_fpu(
                             normalized_exponent = calculated_exponent;
                         end
             default:    begin // number underflowed left shift, shifting by 1 used by div, shifting by more than 1 used by add and sub.
-                            normalized_fraction = calculated_fraction << normalize_shift_count;
+                            normalized_fraction = left_shifter_result;
                             normalized_exponent = calculated_exponent - normalize_shift_count;
                         end
         endcase
@@ -691,10 +697,26 @@ module pipelined_fpu(
     end
 
 
+    right_shifter
+    right_shifter(
+        .shift_count    (align_shift_count_b),
+        .operand        (sorted_fraction_b),
+        .result         (right_shifter_result)
+    );
+
+
     leading_zeros_detector
     leading_zeros_detector(
-        .value         (calculated_fraction[47:24]), // shouldn't this be 26-bits at the very least?
-        .zeros         (normalize_shift_count)
+        .value          (calculated_fraction[47:24]), // shouldn't this be 26-bits at the very least?
+        .zeros          (normalize_shift_count)
+    );
+
+
+    left_shifter
+    left_shifter(
+        .shift_count    (normalize_shift_count),
+        .operand        (calculated_fraction),
+        .result         (left_shifter_result)
     );
 
 
@@ -702,13 +724,13 @@ module pipelined_fpu(
     multi_norm_divider(
         .clk,
         .reset,
-        .start         (op == 3'd3 & start),
-        .dividend_in   (aligned_fraction_a[24:1]),
-        .divisor_in    (aligned_fraction_b[47:24]),
-        .busy          (sqrt_busy),
-        .done          (sqrt_done),
-        .quotient      (quotient),
-        .remainder     (div_rem)
+        .start          (op == 3'd3 & start),
+        .dividend_in    (aligned_fraction_a[24:1]),
+        .divisor_in     (aligned_fraction_b[47:24]),
+        .busy           (sqrt_busy),
+        .done           (sqrt_done),
+        .quotient       (quotient),
+        .remainder      (div_rem)
     );
 
 
@@ -716,12 +738,12 @@ module pipelined_fpu(
     multi_norm_sqrt(
         .clk,
         .reset,
-        .start         (op == 3'd4 & start),
-        .radicand_in   (aligned_fraction_a),
-        .busy          (div_busy),
-        .done          (div_done),
-        .root          (root),
-        .remainder     (sqrt_rem)
+        .start          (op == 3'd4 & start),
+        .radicand_in    (aligned_fraction_a),
+        .busy           (div_busy),
+        .done           (div_done),
+        .root           (root),
+        .remainder      (sqrt_rem)
     );
 
 
