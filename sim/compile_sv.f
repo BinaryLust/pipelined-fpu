@@ -4,6 +4,7 @@
 
 ../rtl/multi_norm_divider.sv
 ../rtl/multi_norm_sqrt.sv
+../rtl/multi_norm_combined.sv
 ../rtl/sub_zeros_detector.sv
 ../rtl/leading_zeros_detector.sv
 ../rtl/right_shifter.sv

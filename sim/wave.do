@@ -35,16 +35,14 @@ add wave -noupdate /pipelined_fpu_tb/dut/sorted_exponent_a
 add wave -noupdate /pipelined_fpu_tb/dut/sorted_exponent_b
 add wave -noupdate /pipelined_fpu_tb/dut/sorted_fraction_a
 add wave -noupdate /pipelined_fpu_tb/dut/sorted_fraction_b
-add wave -noupdate /pipelined_fpu_tb/dut/align_shift_count_a
+add wave -noupdate /pipelined_fpu_tb/dut/right_shifter_result
 add wave -noupdate /pipelined_fpu_tb/dut/align_shift_count_b
-add wave -noupdate /pipelined_fpu_tb/dut/aligned_fraction_a
 add wave -noupdate /pipelined_fpu_tb/dut/aligned_fraction_b
-add wave -noupdate /pipelined_fpu_tb/dut/root
-add wave -noupdate /pipelined_fpu_tb/dut/quotient
-add wave -noupdate /pipelined_fpu_tb/dut/sqrt_rem
-add wave -noupdate /pipelined_fpu_tb/dut/div_rem
+add wave -noupdate /pipelined_fpu_tb/dut/quotient_root
+add wave -noupdate /pipelined_fpu_tb/dut/remainder
 add wave -noupdate /pipelined_fpu_tb/dut/calculated_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/calculated_fraction
+add wave -noupdate /pipelined_fpu_tb/dut/left_shifter_result
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/normalized_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/normalize_shift_count
@@ -60,12 +58,8 @@ add wave -noupdate /pipelined_fpu_tb/dut/post_fraction
 add wave -noupdate /pipelined_fpu_tb/dut/result_sign
 add wave -noupdate /pipelined_fpu_tb/dut/result_exponent
 add wave -noupdate /pipelined_fpu_tb/dut/result_fraction
-add wave -noupdate /pipelined_fpu_tb/dut/sqrt_busy
-add wave -noupdate /pipelined_fpu_tb/dut/sqrt_done
-add wave -noupdate /pipelined_fpu_tb/dut/div_busy
-add wave -noupdate /pipelined_fpu_tb/dut/div_done
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {145000 ps} 0}
+WaveRestoreCursors {{Cursor 1} {354000109100 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 295
 configure wave -valuecolwidth 328
@@ -81,4 +75,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {0 ps} {358400 ps}
+WaveRestoreZoom {353999774600 ps} {354000133 ns}

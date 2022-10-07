@@ -1,11 +1,3 @@
-
-// rounding modes
-// round to zero (trucate)
-// round to negative infinity
-// round to positive infinity
-// round to nearest even
-
-
 // special cases
 // exponent // fraction
 //      = 0 //      = 0 // zero
@@ -22,22 +14,6 @@
 // underflow happens when the exponent is less than 1 or (-126)
 // or if submormal numbers are allowed underflow happens when the number
 // is much smaller... fill this in later
-
-
-// rounding bits for round to nearest
-// guard(LSB) = bit[22]
-// round(R)   = bit[21]
-// sticky(S)  = bits[20:0]
-
-
-// round to nearest even logic table
-// round bit is sub fraction bit 24, sticky bit is the or of all bits from 23 to 0 of the sub fraction
-// fraction[0] // round bit // sticky bit
-//           x            0             0 // number is < 1/2 // round down by keeping the fraction the same
-//           x            0             1 // number is < 1/2 // round down by keeping the fraction the same
-//           0            1             0 // number is 1/2   // round down by keeping the fraction the same
-//           1            1             0 // number is 1/2   // round up by adding 1 to the fraction
-//           x            1             1 // number is > 1/2 // round up by adding 1 to the fraction
 
 // round to zero always just chops off the extra bits and never rounds or does anything at all
 
@@ -62,101 +38,6 @@
 //    -            0             1    add 1 to ulp
 //    -            1             0    add 1 to ulp
 //    -            1             1    add 1 to ulp
-
-
-// for division we subtract the exponents and add the bias back in so (e1 - e2) + 127
-// we also need to divide the fractions so (f1 / f2)
-
-// floating point remainder is defined as f1 - f2 * int(f1 / f2)
-// I think it is basically returning the fractional part of the number
-// like in the case of 10.756 it would be 0.756
-// https://www.geeksforgeeks.org/modulus-two-float-double-numbers/
-// that site defines it as what is left over from the dividend after we subtract
-// the divisor from it a integer number of times.
-
-// for subtraction they are figuring out rounding before they actually do the subtraction
-// so
-
-// qNaN doesn't signal an exception and just flows through calucations, all operations
-// which generate NaN's are supposed to generate qNaN's except when a sNaN is used
-// as one of the operands. its value is (.1u...u)
-
-// sNaN is typically the value set to uninitialized floating point values so that they
-// will singal an exception if that value is used in a calculation, its value is(.0u...u)
-
-// multiplication special cases
-//  normal *  0   =  0
-// -normal *  0   = -0
-// +inf    *  0   =  qNaN
-// -inf    *  0   = -qNaN // this result is odd.
-//  NaN    *  0   =  qNaN
-//  normal * -inf = -inf
-//  normal * +inf = +inf
-// -normal * -inf = +inf
-// -normal * +inf = -inf
-// +inf    * -inf = -inf
-// +inf    * +inf = +inf
-//  normal *  NaN =  qNaN
-// -normal *  NaN =  qNaN
-// +inf    *  NaN =  qNaN
-// -inf    *  NaN =  qNaN
-
-// bits needed for rounding
-// addition:    needs fraction + round bit + sticky bit
-// subtraction: needs fraction + guard bit + round bit + sticky bit
-
-
-// x86 floating point expection when returning a NaN from 2 NaN inputs
-// is_nan_a: 0_11111111_01011110001011010110101
-// is_nan_b: 0_11111111_00110110001010000001011
-// expected: 0_11111111_11011110001011010110101
-
-// is_nan_a: 0_11111111_00001101100100000001001
-// is_nan_b  0_11111111_11000010011011001101010
-// expected: 0_11111111_10001101100100000001001
-
-
-// we could choose to just turn subnormal values into zeros if we don't want to support them, or trigger an
-// interrupt each time one is seen.
-
-
-// to allow this to divide subnormal numbers properly we have a few options
-//
-// we could normalize subnormal operands before doing division on them, but this would take 2 32 bit left shifters
-//
-// we could use a right shifter and a 2nd leading zero/leading one counter to right shift the result after division
-// the reason for this is when dividing a large number by a small subnormal number the result can be larger than
-// the standard 47/48 bits in which case it needs to be corrected.
-//
-
-
-// an example of finding square roots
-// we start off with
-// fraction = 1.25  (1.010)
-// exponent = 2 ^ 9 (1001)
-
-// we assume that all of the numbers input will be normalized.
-// first we must adjust the fraction and exponent, the fraction must be in the format of 0.1... or 0.01...
-// and the exponent must be an even number also. if the exponent is odd we right shift the fraction by one
-// and increment the exponent by 1, if the exponent is even we must right shift the exponent by 2 and
-// increment the exponent by 2.
-// fraction = 0.625  (0.101)
-// exponent = 2 ^ 10 (1010)
-
-// next we calculate the sqrt of the fraction and exponent. the sqrt of the exponent is calculated by simply
-// right shifting by 1, the sqrt of the fraction must be calculated in a full blown sqrt calculator.
-// fraction = 0.8125 (0.1101)
-// exponent = 2 ^ 5  (0101)
-
-// next we normalized the result
-// fraction = 1.625  (1.101)
-// exponent = 2 ^ 4  (0100)
-
-// next we would round the result and normalize again but that part is skipped here
-
-
-// for biased exponents we will have to do (exponent[9:1] + 9'd63) + exponent[0]
-// when dividing by 2 to find the sqrt of it.
 
 // for fused multiply add we could use carry save adders and do the addition and multiplication in parallel.
 
@@ -279,16 +160,12 @@ module pipelined_fpu(
     logic  [47:0]  right_shifter_result;
 
 
-    logic          align_shift_count_a;
     logic  [4:0]   align_shift_count_b;
-    logic  [24:0]  aligned_fraction_a;     // is [x.xxxx....] format with 1 integer bit,  24 fractional bits
     logic  [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
 
-    logic  [25:0]  root;                   // is [x.xxxx...]  format with 1 integer bits  25 fractional bits
-    logic  [25:0]  quotient;               // is [x.xxxx...]  format with 1 integer bit,  25 fractional bits
-    logic  [26:0]  sqrt_rem;
-    logic  [23:0]  div_rem;
+    logic  [25:0]  quotient_root;          // is [x.xxxx...]  format with 1 integer bits  25 fractional bits
+    logic  [26:0]  remainder;
 
 
     logic  [9:0]   calculated_exponent;
@@ -321,13 +198,6 @@ module pipelined_fpu(
     logic          result_sign;
     logic  [9:0]   result_exponent;
     logic  [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
-
-
-    // busy and done signals
-    logic          sqrt_busy;
-    logic          sqrt_done;
-    logic          div_busy;
-    logic          div_done;
 
 
     always_comb begin
@@ -375,9 +245,13 @@ module pipelined_fpu(
 
 
         // do alignment
-        align_shift_count_a = (op == 3'd4) & exponent_a[0];  // this is for the square root operation only. the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and adjust it and the fraction if it's not.
-        align_shift_count_b = ((op == 3'd0) | (op == 3'd1)) ? ((sorted_exponent_a - sorted_exponent_b) <= 5'd26) ? sorted_exponent_a - sorted_exponent_b : 5'd31 : 5'd0;; // this is for addition and subtraction operations only.
-        aligned_fraction_a  = (align_shift_count_a) ? {1'b0, sorted_fraction_a} : {sorted_fraction_a, 1'b0};                                                              // if exponent is odd then right shift the fraction by one bit, else don't.
+        case(op)
+            3'd0,
+            3'd1:    align_shift_count_b = ((sorted_exponent_a - sorted_exponent_b) <= 5'd26) ? sorted_exponent_a - sorted_exponent_b : 5'd31; // for addition and subtraction.
+            3'd4:    align_shift_count_b = (sorted_exponent_b[0]) ? 5'd1 : 5'd0; // for square root. the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and right shift by 1 if it's not.
+            default: align_shift_count_b = 5'd0;
+        endcase
+
         aligned_fraction_b  = {1'b0, right_shifter_result};
         // aligned_exponent_a = 
         // aligned_exponent_b =
@@ -399,17 +273,17 @@ module pipelined_fpu(
 
             3'd2:       begin // for multiplication // add exponents and multiply fractions
                             calculated_exponent = (unsigned'(sorted_exponent_a) + unsigned'(sorted_exponent_b)) - 10'd127;
-                            calculated_fraction = (unsigned'(aligned_fraction_a[24:1]) * unsigned'(aligned_fraction_b[47:24])) << 1;
+                            calculated_fraction = (unsigned'(sorted_fraction_a) * unsigned'(aligned_fraction_b[47:24])) << 1;
                         end
 
             3'd3:       begin // for division
                             calculated_exponent = (unsigned'(sorted_exponent_a) - unsigned'(sorted_exponent_b)) + 10'd127;
-                            calculated_fraction = {1'b0, quotient, 22'd0}; // quotient is 26-bits wide
+                            calculated_fraction = {1'b0, quotient_root, 22'd0}; // quotient is 26-bits wide
                         end
 
             default:    begin // for square root // find the sqrt of the fraction
-                            calculated_exponent = (sorted_exponent_a[7:1] + 10'd63) + sorted_exponent_a[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
-                            calculated_fraction = {1'b0, root, 22'd0}; // root is 26-bits wide
+                            calculated_exponent = (sorted_exponent_b[7:1] + 10'd63) + sorted_exponent_b[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
+                            calculated_fraction = {1'b0, quotient_root, 22'd0}; // root is 26-bits wide
                         end
         endcase
 
@@ -436,8 +310,8 @@ module pipelined_fpu(
         guard_bit    = normalized_fraction[23];
         round_bit    = normalized_fraction[22];
         casex(op)
-            3'd3:    sticky_bit = |div_rem;
-            3'd4:    sticky_bit = |sqrt_rem;
+            3'd3,
+            3'd4:    sticky_bit = |remainder;
             default: sticky_bit = |normalized_fraction[21:0];
         endcase
 
@@ -522,8 +396,8 @@ module pipelined_fpu(
             {3'd3, NORMAL,    INFINITE,  1'b?, 1'b?}: result = {result_sign,       8'd0,                  1'b0,                 22'd0};                  // div: +/- zero
             {3'd3, INFINITE,  INFINITE,  1'b?, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // div: -1.#IND
 
-            {3'd4, INFINITE,  DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: if sign_a is 1 then -1.#IND
-            {3'd4, INFINITE,  DONTCARE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b0,                 22'd0};                  // sqrt: if sign_a is 0 then +infinity
+            {3'd4, DONTCARE,  INFINITE,  1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: if sign_a is 1 then -1.#IND
+            {3'd4, DONTCARE,  INFINITE,  1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b0,                 22'd0};                  // sqrt: if sign_a is 0 then +infinity
 
             // 8'b0?0??10? // is_zero
             {3'd0, NORMAL,    ZERO,      1'b?, 1'b?},
@@ -562,8 +436,8 @@ module pipelined_fpu(
             {3'd3, ZERO,      SUBNORMAL, 1'b?, 1'b?},
             {3'd3, SUBNORMAL, ZERO,      1'b?, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // div: -1.#IND
 
-            {3'd4, ZERO,      DONTCARE,  1'b?, 1'b?},
-            {3'd4, SUBNORMAL, DONTCARE,  1'b?, 1'b?}: result = {sign_a,            8'd0,                  1'b0,                 22'd0};                  // sqrt: +/- zero
+            {3'd4, DONTCARE,  ZERO,      1'b?, 1'b?},
+            {3'd4, DONTCARE,  SUBNORMAL, 1'b?, 1'b?}: result = {sign_b,            8'd0,                  1'b0,                 22'd0};                  // sqrt: +/- zero
 
             // 8'b1?1????? // is_nnan and is_nan
             {3'd0, NAN,       NAN,       1'b0, 1'b1},
@@ -639,7 +513,7 @@ module pipelined_fpu(
             {3'd3, SUBNORMAL, NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  quiet not a number (following x86 standards)
             {3'd3, NAN,       SUBNORMAL, 1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  quiet not a number (following x86 standards)
 
-            {3'd4, NAN,       DONTCARE,  1'b0, 1'b?}: result = {1'b0,              8'd255,                1'b1,                 fraction_a[21:0]};       // sqrt: quiet not a number (following x86 standards)
+            {3'd4, DONTCARE,  NAN,       1'b?, 1'b0}: result = {1'b0,              8'd255,                1'b1,                 fraction_b[21:0]};       // sqrt: quiet not a number (following x86 standards)
 
             // 8'b1?0????? // is_nnan, is_nan must be zero but doesn't care about anything else.
             {3'd0, NAN,       NAN,       1'b1, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // add:  negative quiet not a number (following x86 standards)
@@ -682,15 +556,15 @@ module pipelined_fpu(
             {3'd3, SUBNORMAL, NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // div:  negative quiet not a number (following x86 standards)
             {3'd3, NAN,       SUBNORMAL, 1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // div:  negative quiet not a number (following x86 standards)
 
-            {3'd4, NAN,       DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 fraction_a[21:0]};       // sqrt: negative quiet not a number (following x86 standards)
+            {3'd4, DONTCARE,  NAN,       1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 fraction_b[21:0]};       // sqrt: negative quiet not a number (following x86 standards)
 
             // normal results
             {3'd0, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // add: normal result
             {3'd1, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // sub: normal result
             {3'd2, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // mult: normal result
             {3'd3, NORMAL,    NORMAL,    1'b?, 1'b?}: result = {result_sign,       result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // div: normal result
-            {3'd4, NORMAL,    DONTCARE,  1'b0, 1'b?}: result = {1'b0,              result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // sqrt: sign_a == 0 then normal result
-            {3'd4, NORMAL,    DONTCARE,  1'b1, 1'b?}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: sign_a == 1 then -1.#IND
+            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: result = {1'b0,              result_exponent[7:0],  result_fraction[22],  result_fraction[21:0]};  // sqrt: sign_a == 0 then normal result
+            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b1}: result = {1'b1,              8'd255,                1'b1,                 22'd0};                  // sqrt: sign_a == 1 then -1.#IND
 
             default:                                  result = {1'b0,              8'd0,                  1'b0,                 22'd0};                  // zero
         endcase
@@ -720,35 +594,19 @@ module pipelined_fpu(
     );
 
 
-    multi_norm_divider #(.INWIDTH(24), .OUTWIDTH(26))
-    multi_norm_divider(
+    multi_norm_combined #(.INWIDTH(25), .OUTWIDTH(26))
+    multi_norm_combined(
         .clk,
         .reset,
-        .start          (op == 3'd3 & start),
-        .dividend_in    (aligned_fraction_a[24:1]),
-        .divisor_in     (aligned_fraction_b[47:24]),
-        .busy           (sqrt_busy),
-        .done           (sqrt_done),
-        .quotient       (quotient),
-        .remainder      (div_rem)
+        .mode                   (op == 3'd4),
+        .start                  ((op == 3'd3 | op == 3'd4) & start),
+        .dividend_in            ({sorted_fraction_a, 1'b0}),
+        .divisor_radicand_in    (aligned_fraction_b[47:23]),
+        .busy,
+        .done,
+        .quotient_root,
+        .remainder
     );
-
-
-    multi_norm_sqrt #(.INWIDTH(25), .OUTWIDTH(26))
-    multi_norm_sqrt(
-        .clk,
-        .reset,
-        .start          (op == 3'd4 & start),
-        .radicand_in    (aligned_fraction_a),
-        .busy           (div_busy),
-        .done           (div_done),
-        .root           (root),
-        .remainder      (sqrt_rem)
-    );
-
-
-    assign busy = sqrt_busy | div_busy;
-    assign done = sqrt_done | div_done;
 
 
 endmodule

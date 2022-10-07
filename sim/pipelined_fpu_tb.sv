@@ -63,7 +63,7 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed               = 5268791;
+    integer            seed               = 186787;
     integer            errors             = 0;
     integer            cycles_per_test    = 300000;
     shortreal          float_a;
@@ -251,20 +251,20 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd4;
             start           = 1'b1;
-            a               = rand_float();
+            b               = rand_float();
 
             @(posedge clk);
             start           = 1'b0;
 
             @(posedge done);
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
 
             if(result != expected_result) begin
                 $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",
-                    float_a,
+                    float_b,
                     float_result,
                     $bitstoshortreal(expected_result)
                 );
@@ -286,20 +286,20 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd4;
             start           = 1'b1;
-            a               = $urandom();
+            b               = $urandom();
 
             @(posedge clk);
             start           = 1'b0;
 
             @(posedge done);
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
+            float_b         = $bitstoshortreal(b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
 
             if(result != expected_result) begin
                 $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",
-                    float_a,
+                    float_b,
                     float_result,
                     $bitstoshortreal(expected_result)
                 );
@@ -560,7 +560,7 @@ module pipelined_fpu_tb();
             3'd1:    temp = $shortrealtobits(float_a - float_b);
             3'd2:    temp = $shortrealtobits(float_a * float_b);
             3'd3:    temp = $shortrealtobits(float_a / float_b);
-            3'd4:    temp = $shortrealtobits($sqrt(float_a));
+            3'd4:    temp = $shortrealtobits($sqrt(float_b));
             default: temp = {1'b0, 8'd0, 23'd0};
         endcase
 
