@@ -14,6 +14,20 @@ package operand;
 endpackage
 
 
+package calculation;
+
+    typedef  enum  logic  [2:0] {
+        ADD      = 3'd0,
+        SUB      = 3'd1,
+        MUL      = 3'd2,
+        DIV      = 3'd3,
+        SQRT     = 3'd4,
+        DONTCARE = 3'd?
+    } calculation_select;
+
+endpackage
+
+
 package sign;
 
     typedef  enum  logic  [2:0] {

@@ -59,63 +59,46 @@ module pipelined_fpu(
     );
 
 
-    logic          sign_a;
-    logic  [7:0]   exponent_a;
-    logic  [23:0]  fraction_a;
+    logic                                        sign_a;
+    logic                                [7:0]   exponent_a;
+    logic                                [23:0]  fraction_a;
 
+    logic                                        sign_b;
+    logic                                [7:0]   exponent_b;
+    logic                                [23:0]  fraction_b;
 
-    logic          sign_b;
-    logic  [7:0]   exponent_b;
-    logic  [23:0]  fraction_b;
+    logic                                        exchange_operands;
 
+    logic                                        sorted_sign_a;
+    logic                                        sorted_sign_b;
+    logic                                [7:0]   sorted_exponent_a;
+    logic                                [7:0]   sorted_exponent_b;
+    logic                                [23:0]  sorted_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
+    logic                                [23:0]  sorted_fraction_b;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
 
-    logic          exchange_operands;
+    logic                                [4:0]   align_shift_count;
+    logic                                [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
-    sign::sign_select                    sign_select;
-    exponent::exponent_select            exponent_select;
-    fraction_msb::fraction_msb_select    fraction_msb_select;
-    fraction_lsbs::fraction_lsbs_select  fraction_lsbs_select;
+    logic                                [26:0]  remainder;
 
+    calculation::calculation_select              calculation_select;
+    logic                                        divider_mode;
+    logic                                        divider_start;
 
-    logic          sorted_sign_a;
-    logic          sorted_sign_b;
-    logic  [7:0]   sorted_exponent_a;
-    logic  [7:0]   sorted_exponent_b;
-    logic  [23:0]  sorted_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
-    logic  [23:0]  sorted_fraction_b;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
+    logic                                [9:0]   calculated_exponent;
+    logic                                [48:0]  calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
+    logic                                [9:0]   normalized_exponent;
+    logic                                [48:0]  normalized_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
-    logic  [47:0]  right_shifter_result;   // is [x.xxxx...]  format with 1 integer bit,  47 fractional bits
+    logic                                        result_sign;
+    logic                                [9:0]   result_exponent;
+    logic                                [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
 
-
-    logic  [4:0]   align_shift_count;
-    logic  [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
-
-
-    logic  [25:0]  quotient_root;          // is [x.xxxx...]  format with 1 integer bits  25 fractional bits
-    logic  [26:0]  remainder;
-
-
-    logic  [9:0]   calculated_exponent;
-    logic  [48:0]  calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
-
-
-    logic  [48:0]  left_shifter_result;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
-
-
-    logic  [9:0]   normalized_exponent;
-    logic  [48:0]  normalized_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
-    logic  [4:0]   normalize_shift_count;    
-
-
-    logic          post_sign;
-    logic  [9:0]   post_exponent;
-    logic  [24:0]  post_fraction;          // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
-
-
-    logic          result_sign;
-    logic  [9:0]   result_exponent;
-    logic  [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
+    sign::sign_select                            sign_select;
+    exponent::exponent_select                    exponent_select;
+    fraction_msb::fraction_msb_select            fraction_msb_select;
+    fraction_lsbs::fraction_lsbs_select          fraction_lsbs_select;
 
 
     always_comb begin
@@ -129,101 +112,18 @@ module pipelined_fpu(
         fraction_b       = {1'b1, b[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
 
 
-        // sort operands, we will only do this for addition and subtraction operations, for all other operations we just pass the values through.
-        // the sorting is done by the operand exchanger module below.
-
-
-        // do alignment
-        // this is done by the right_shifter module below.
-        aligned_fraction_b  = {1'b0, right_shifter_result};
-        // aligned_exponent_a = 
-        // aligned_exponent_b =
-
-
-        // do calculation
-        casex(op)
-            3'd0:       begin
-                            calculated_exponent = sorted_exponent_a;
-                            calculated_fraction = (sorted_sign_a ^ sorted_sign_b) ? unsigned'({1'd0, sorted_fraction_a, 24'd0}) - unsigned'(aligned_fraction_b)
-                                                                                  : unsigned'({1'd0, sorted_fraction_a, 24'd0}) + unsigned'(aligned_fraction_b);
-                        end
-
-            3'd1:       begin
-                            calculated_exponent = sorted_exponent_a;
-                            calculated_fraction = (sorted_sign_a ~^ sorted_sign_b) ? unsigned'({1'd0, sorted_fraction_a, 24'd0}) - unsigned'(aligned_fraction_b)
-                                                                                   : unsigned'({1'd0, sorted_fraction_a, 24'd0}) + unsigned'(aligned_fraction_b);
-                        end
-
-            3'd2:       begin // for multiplication // add exponents and multiply fractions
-                            calculated_exponent = (unsigned'(sorted_exponent_a) + unsigned'(sorted_exponent_b)) - 10'd127;
-                            calculated_fraction = (unsigned'(sorted_fraction_a) * unsigned'(aligned_fraction_b[47:24])) << 1;
-                        end
-
-            3'd3:       begin // for division
-                            calculated_exponent = (unsigned'(sorted_exponent_a) - unsigned'(sorted_exponent_b)) + 10'd127;
-                            calculated_fraction = {1'b0, quotient_root, 22'd0}; // quotient is 26-bits wide
-                        end
-
-            default:    begin // for square root // find the sqrt of the fraction
-                            calculated_exponent = (sorted_exponent_b[7:1] + 10'd63) + sorted_exponent_b[0];  // this divides the exponent by 2, adds half the bias back in and if it was odd before increments the value by 1.
-                            calculated_fraction = {1'b0, quotient_root, 22'd0}; // root is 26-bits wide
-                        end
-        endcase
-
-
-        // do normalization
-        casex(calculated_fraction[48:47])
-            2'b1?:      begin // number overflowed right shift by 1, used for add, sub, and mul
-                            normalized_fraction = calculated_fraction >> 1;
-                            normalized_exponent = calculated_exponent + 10'd1;
-                        end
-            2'b01:      begin // number already normalized
-                            normalized_fraction = calculated_fraction;
-                            normalized_exponent = calculated_exponent;
-                        end
-            default:    begin // number underflowed left shift, shifting by 1 used by div, shifting by more than 1 used by add and sub.
-                            normalized_fraction = left_shifter_result;
-                            normalized_exponent = calculated_exponent - normalize_shift_count;
-                        end
-        endcase
-
-
-        // do rounding
-        // this is done by the rounding_logic module below.
-
-
-        // set final result values
-        if(~|post_fraction) begin // check for zero
-            // set zero as result
-            result_sign     = 1'b0;
-            result_exponent = 10'd0;
-            result_fraction = 25'd0;
-        end else if(post_exponent >=  10'd255 && post_exponent <=  10'd511) begin // check for overflow
-            // set infinity as result
-            result_sign     = post_sign;
-            result_exponent = 8'd255;
-            result_fraction = 25'd0;
-        end else if(post_exponent == 10'd0 || (post_exponent <=  -10'd1 && post_exponent >= -10'd512)) begin // check for underflow
-            // set zero as result
-            result_sign     = post_sign;
-            result_exponent = 10'd0;
-            result_fraction = 25'd0;
-        end else begin
-            // use actual results
-            result_sign     = post_sign;
-            result_exponent = post_exponent;
-            result_fraction = post_fraction;
-        end
-
-
-        // select final result and pack fields
-        // this is done by the result_multiplexer and control_logic modules.
+        // do alignment, this is done by the aligner module below.
+        // do calculation, this is done by the calculation_unit module below.
+        // do normalization, this is done by the normalizer module below.
+        // do rounding, this is done by the rounding_logic module below.
+        // select final result and pack fields, this is done by the result_selecter and control_logic modules.
     end
 
 
     control_logic
     control_logic(
         .op,
+        .start,
         .sign_a,
         .exponent_a,
         .fraction_a,
@@ -236,7 +136,10 @@ module pipelined_fpu(
         .sorted_exponent_b,
         .exchange_operands,
         .align_shift_count,
-        .post_sign,
+        .result_sign,
+        .calculation_select,
+        .divider_mode,
+        .divider_start,
         .sign_select,
         .exponent_select,
         .fraction_msb_select,
@@ -244,9 +147,10 @@ module pipelined_fpu(
     );
 
 
-    operand_exchanger
-    operand_exchanger(
+    aligner
+    aligner(
         .exchange_operands,
+        .align_shift_count,
         .sign_a,
         .exponent_a,
         .fraction_a,
@@ -258,30 +162,36 @@ module pipelined_fpu(
         .sorted_fraction_a,
         .sorted_sign_b,
         .sorted_exponent_b,
-        .sorted_fraction_b
+        .sorted_fraction_b,
+        .aligned_fraction_b
     );
 
 
-    right_shifter
-    right_shifter(
-        .shift_count    (align_shift_count),
-        .operand        (sorted_fraction_b),
-        .result         (right_shifter_result)
+    calculation_unit
+    calculation_unit(
+        .clk,
+        .reset,    
+        .calculation_select,
+        .divider_mode,
+        .divider_start,
+        .sorted_exponent_a,
+        .sorted_fraction_a,
+        .sorted_exponent_b,
+        .aligned_fraction_b,
+        .busy,
+        .done,
+        .remainder,
+        .calculated_exponent,
+        .calculated_fraction
     );
 
 
-    leading_zeros_detector
-    leading_zeros_detector(
-        .value          (calculated_fraction[47:24]), // shouldn't this be 26-bits at the very least?
-        .zeros          (normalize_shift_count)
-    );
-
-
-    left_shifter
-    left_shifter(
-        .shift_count    (normalize_shift_count),
-        .operand        (calculated_fraction),
-        .result         (left_shifter_result)
+    normalizer
+    normalizer(
+        .calculated_exponent,
+        .calculated_fraction,
+        .normalized_exponent,
+        .normalized_fraction
     );
 
 
@@ -291,28 +201,13 @@ module pipelined_fpu(
         .normalized_exponent,
         .normalized_fraction,
         .remainder,
-        .post_exponent,
-        .post_fraction
+        .result_exponent,
+        .result_fraction
     );
 
 
-    multi_norm_combined #(.INWIDTH(25), .OUTWIDTH(26))
-    multi_norm_combined(
-        .clk,
-        .reset,
-        .mode                   (op == 3'd4),
-        .start                  ((op == 3'd3 | op == 3'd4) & start),
-        .dividend_in            ({sorted_fraction_a, 1'b0}),
-        .divisor_radicand_in    (aligned_fraction_b[47:23]),
-        .busy,
-        .done,
-        .quotient_root,
-        .remainder
-    );
-
-
-    result_multiplexers
-    result_multiplexers(
+    result_selecter
+    result_selecter(
         .sign_select,
         .exponent_select,
         .fraction_msb_select,

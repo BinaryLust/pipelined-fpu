@@ -2,6 +2,7 @@
 
 module control_logic(
     input   logic                                [2:0]   op,
+    input   logic                                        start,
     input   logic                                        sign_a,
     input   logic                                [7:0]   exponent_a,
     input   logic                                [23:0]  fraction_a,
@@ -15,7 +16,10 @@ module control_logic(
 
     output  logic                                        exchange_operands,
     output  logic                                [4:0]   align_shift_count,
-    output  logic                                        post_sign,
+    output  logic                                        result_sign,
+    output  calculation::calculation_select              calculation_select,
+    output  logic                                        divider_mode,
+    output  logic                                        divider_start,
     output  sign::sign_select                            sign_select,
     output  exponent::exponent_select                    exponent_select,
     output  fraction_msb::fraction_msb_select            fraction_msb_select,
@@ -67,12 +71,28 @@ module control_logic(
         endcase
 
 
-        // sign calculation
+        // calculate final sign value
         case(op)
-            3'd0:    post_sign = sorted_sign_a;                                        // for add
-            3'd1:    post_sign = (exchange_operands) ? ~sorted_sign_a : sorted_sign_a; // for sub
-            default: post_sign = sign_a ^ sign_b;                                      // for mul, div
+            3'd0:    result_sign = sorted_sign_a;                                        // for add
+            3'd1:    result_sign = (exchange_operands) ? ~sorted_sign_a : sorted_sign_a; // for sub
+            default: result_sign = sign_a ^ sign_b;                                      // for mul, div
         endcase
+
+
+        // select the type of calculation that will take place
+        casex(op)
+            3'd0:    calculation_select = (sign_a  ^ sign_b) ? calculation::SUB : calculation::ADD;
+            3'd1:    calculation_select = (sign_a ~^ sign_b) ? calculation::SUB : calculation::ADD;
+            3'd2:    calculation_select = calculation::MUL;
+            3'd3:    calculation_select = calculation::DIV;
+            3'd4:    calculation_select = calculation::SQRT;
+            default: calculation_select = calculation::ADD;
+        endcase
+
+
+        // select division unit mode and starting conditions
+        divider_mode  = (op == 3'd4);                      // if op type is square root then set divider_mode to 1
+        divider_start = (op == 3'd3 | op == 3'd4) & start; // if optype is divide or square root and start line is high then enable divider unit.
 
 
         // choose final result
@@ -264,7 +284,7 @@ module control_logic(
             {3'd1, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sub:  normal result
             {3'd2, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // mult: normal result
             {3'd3, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // div:  normal result
-            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sqrt: sign_a == 0 then normal result
+            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sqrt: sign_a == 0 then normal result
             {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::ZEROS};   // sqrt: sign_a == 1 then -1.#IND
 
             default:                                  {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // zero

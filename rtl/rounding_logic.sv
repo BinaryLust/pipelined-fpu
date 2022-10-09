@@ -6,8 +6,8 @@ module rounding_logic(
     input   logic  [48:0]  normalized_fraction,  // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
     input   logic  [26:0]  remainder,
 
-    output  logic  [9:0]   post_exponent,
-    output  logic  [24:0]  post_fraction         // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
+    output  logic  [9:0]   result_exponent,
+    output  logic  [24:0]  result_fraction         // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
     );
 
 
@@ -50,8 +50,8 @@ module rounding_logic(
 
 
         // do post rounding normalization
-        post_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
-        post_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
+        result_fraction = (rounded_fraction[24]) ? rounded_fraction >> 1    : rounded_fraction;
+        result_exponent = (rounded_fraction[24]) ? rounded_exponent + 10'd1 : rounded_exponent;
     end
 
 
