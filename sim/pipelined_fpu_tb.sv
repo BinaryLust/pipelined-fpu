@@ -25,8 +25,8 @@ module pipelined_fpu_tb();
     logic        reset;
     logic [2:0]  op;
     logic        start;
-    logic [31:0] a;
-    logic [31:0] b;
+    logic [31:0] operand_a;
+    logic [31:0] operand_b;
 
 
     // output wires
@@ -48,8 +48,8 @@ module pipelined_fpu_tb();
         .reset,
         .op,
         .start,
-        .a,
-        .b,
+        .operand_a,
+        .operand_b,
         .done,
         .busy,
         .result
@@ -63,9 +63,9 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed               = 186787;
-    integer            errors             = 0;
-    integer            cycles_per_test    = 300000;
+    integer            seed            = 186787;
+    integer            errors          = 0;
+    integer            cycles_per_test = 10000;
     shortreal          float_a;
     shortreal          float_b;
     shortreal          float_result;
@@ -81,11 +81,11 @@ module pipelined_fpu_tb();
 
     // set initial values
     initial begin
-        reset = 1'b0;
-        op    = 3'd3;
-        start = 1'b0;
-        a     = 32'd0;
-        b     = 32'd0;
+        reset     = 1'b0;
+        op        = 3'd3;
+        start     = 1'b0;
+        operand_a = 32'd0;
+        operand_b = 32'd0;
     end
 
 
@@ -118,12 +118,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd0;
-            a               = rand_float();
-            b               = rand_float();
+            operand_a       = rand_float();
+            operand_b       = rand_float();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -151,12 +151,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd0;
-            a               = $urandom();
-            b               = $urandom();
+            operand_a       = $urandom();
+            operand_b       = $urandom();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -184,12 +184,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd1;
-            a               = rand_float();
-            b               = rand_float();
+            operand_a       = rand_float();
+            operand_b       = rand_float();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -217,12 +217,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd1;
-            a               = $urandom();
-            b               = $urandom();
+            operand_a       = $urandom();
+            operand_b       = $urandom();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -251,14 +251,14 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd4;
             start           = 1'b1;
-            b               = rand_float();
+            operand_b       = rand_float();
 
             @(posedge clk);
             start           = 1'b0;
 
             @(posedge done);
             @(negedge clk)
-            float_b         = $bitstoshortreal(b);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
 
@@ -286,14 +286,14 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd4;
             start           = 1'b1;
-            b               = $urandom();
+            operand_b       = $urandom();
 
             @(posedge clk);
             start           = 1'b0;
 
             @(posedge done);
             @(negedge clk)
-            float_b         = $bitstoshortreal(b);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
 
@@ -320,12 +320,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd2;
-            a               = rand_float();
-            b               = rand_float();
+            operand_a       = rand_float();
+            operand_b       = rand_float();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -353,12 +353,12 @@ module pipelined_fpu_tb();
         repeat(cycles_per_test) begin
             @(posedge clk)
             op              = 3'd2;
-            a               = $urandom();
-            b               = $urandom();
+            operand_a       = $urandom();
+            operand_b       = $urandom();
  
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -387,16 +387,16 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd3;
             start           = 1'b1;
-            a               = rand_float();
-            b               = rand_float();
+            operand_a       = rand_float();
+            operand_b       = rand_float();
  
             @(posedge clk);
             start           = 1'b0;
  
             @(posedge done);
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -424,16 +424,16 @@ module pipelined_fpu_tb();
             @(posedge clk)
             op              = 3'd3;
             start           = 1'b1;
-            a               = $urandom();
-            b               = $urandom();
+            operand_a       = $urandom();
+            operand_b       = $urandom();
  
             @(posedge clk);
             start           = 1'b0;
  
             @(posedge done);
             @(negedge clk)
-            float_a         = $bitstoshortreal(a);
-            float_b         = $bitstoshortreal(b);
+            float_a         = $bitstoshortreal(operand_a);
+            float_b         = $bitstoshortreal(operand_b);
             float_result    = $bitstoshortreal(result);
             expected_result = expected();
  
@@ -547,12 +547,12 @@ module pipelined_fpu_tb();
 
     function logic [31:0] expected();
         automatic logic  [31:0]  temp;
-        automatic logic          a_denorm    = ~|a[30:23]  & |a[22:0];
-        automatic logic          b_denorm    = ~|b[30:23]  & |b[22:0];
+        automatic logic          a_denorm = ~|operand_a[30:23] & |operand_a[22:0];
+        automatic logic          b_denorm = ~|operand_b[30:23] & |operand_b[22:0];
 
 
-        float_a = (a_denorm) ? $bitstoshortreal({a[31], 8'd0, 23'd0}) : float_a;
-        float_b = (b_denorm) ? $bitstoshortreal({b[31], 8'd0, 23'd0}) : float_b;
+        float_a = (a_denorm) ? $bitstoshortreal({operand_a[31], 8'd0, 23'd0}) : float_a;
+        float_b = (b_denorm) ? $bitstoshortreal({operand_b[31], 8'd0, 23'd0}) : float_b;
 
 
         casex(op)

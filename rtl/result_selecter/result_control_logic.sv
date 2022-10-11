@@ -23,8 +23,8 @@ module result_control_logic(
     always_comb begin
         // check the bounds of the result
         result_zero      = ~|result_fraction;
-        result_overflow  = (result_exponent >= 10'd255) && (result_exponent <=  10'd511);
-        result_underflow = (result_exponent == 10'd0) || ((result_exponent <=  -10'd1) && (result_exponent >= -10'd512));
+        result_overflow  = (signed'(result_exponent) >= signed'(10'd255));
+        result_underflow = (signed'(result_exponent) <= signed'(10'd0));
 
 
         if({sign_select_in, exponent_select_in, fraction_msb_select_in, fraction_lsbs_select_in} == {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT}) begin // only check the conditions below if the result is set to normal since they have lower priority

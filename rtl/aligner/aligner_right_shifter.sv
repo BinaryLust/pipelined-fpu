@@ -1,6 +1,6 @@
 
 
-module right_shifter(
+module aligner_right_shifter(
     input   logic  [4:0]   shift_count,
     input   logic  [23:0]  operand,
 

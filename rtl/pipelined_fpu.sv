@@ -42,7 +42,12 @@
 // for fused multiply add we could use carry save adders and do the addition and multiplication in parallel.
 
 // logic usage on max 10, using balanced compilation settings.
-// previous 1,499 LE, 168 regs, 7 9-bit multipliers, Fmax at 0C, 274.57 MHz
+// previous 1,499 LE, 168 regs, 7 9-bit multipliers, Fmax at 0C 274.57 MHz
+// previous 1,411 LE, 86 regs,  7 9-bit multipliers, Fmax at 0C 227.01 MHz
+// current  1,364 LE, 87 regs,  7 9-bit multipliers, Fmax at 0C 228.41 MHz
+
+
+// for some reason we haven't added signaling nan's to the result selecter but we aren't getting errors.
 
 
 module pipelined_fpu(
@@ -50,8 +55,8 @@ module pipelined_fpu(
     input   logic          reset,
     input   logic  [2:0]   op,
     input   logic          start,
-    input   logic  [31:0]  a,
-    input   logic  [31:0]  b,
+    input   logic  [31:0]  operand_a,
+    input   logic  [31:0]  operand_b,
 
     output  logic          done,
     output  logic          busy,
@@ -59,13 +64,16 @@ module pipelined_fpu(
     );
 
 
-    logic                                        sign_a;
-    logic                                [7:0]   exponent_a;
-    logic                                [23:0]  fraction_a;
+    logic                                        operand_sign_a;
+    logic                                [7:0]   operand_exponent_a;
+    logic                                [23:0]  operand_fraction_a;
 
-    logic                                        sign_b;
-    logic                                [7:0]   exponent_b;
-    logic                                [23:0]  fraction_b;
+    logic                                        operand_sign_b;
+    logic                                [7:0]   operand_exponent_b;
+    logic                                [23:0]  operand_fraction_b;
+
+    logic                                [7:0]   unbiased_exponent_a;
+    logic                                [7:0]   unbiased_exponent_b;
 
     logic                                        exchange_operands;
 
@@ -91,6 +99,8 @@ module pipelined_fpu(
     logic                                [9:0]   normalized_exponent;
     logic                                [48:0]  normalized_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
+    logic                                        sticky_bit_select;
+
     logic                                        result_sign;
     logic                                [9:0]   result_exponent;
     logic                                [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
@@ -103,20 +113,13 @@ module pipelined_fpu(
 
     always_comb begin
         // unpack fields
-        sign_a           = a[31];
-        exponent_a       = a[30:23];
-        fraction_a       = {1'b1, a[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
+        operand_sign_a     = operand_a[31];
+        operand_exponent_a = operand_a[30:23];
+        operand_fraction_a = {1'b1, operand_a[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
 
-        sign_b           = b[31];
-        exponent_b       = b[30:23];
-        fraction_b       = {1'b1, b[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
-
-
-        // do alignment, this is done by the aligner module below.
-        // do calculation, this is done by the calculation_unit module below.
-        // do normalization, this is done by the normalizer module below.
-        // do rounding, this is done by the rounding_logic module below.
-        // select final result and pack fields, this is done by the result_selecter and control_logic modules.
+        operand_sign_b     = operand_b[31];
+        operand_exponent_b = operand_b[30:23];
+        operand_fraction_b = {1'b1, operand_b[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
     end
 
 
@@ -124,12 +127,12 @@ module pipelined_fpu(
     control_logic(
         .op,
         .start,
-        .sign_a,
-        .exponent_a,
-        .fraction_a,
-        .sign_b,
-        .exponent_b,
-        .fraction_b,
+        .operand_sign_a,
+        .operand_exponent_a,
+        .operand_fraction_a,
+        .operand_sign_b,
+        .operand_exponent_b,
+        .operand_fraction_b,
         .sorted_sign_a,
         .sorted_exponent_a,
         .sorted_sign_b,
@@ -140,6 +143,7 @@ module pipelined_fpu(
         .calculation_select,
         .divider_mode,
         .divider_start,
+        .sticky_bit_select,
         .sign_select,
         .exponent_select,
         .fraction_msb_select,
@@ -147,16 +151,25 @@ module pipelined_fpu(
     );
 
 
+    exponent_bias_remover
+    exponent_bias_remover(
+        .operand_exponent_a,
+        .operand_exponent_b,
+        .unbiased_exponent_a,
+        .unbiased_exponent_b
+    );
+
+
     aligner
     aligner(
         .exchange_operands,
         .align_shift_count,
-        .sign_a,
-        .exponent_a,
-        .fraction_a,
-        .sign_b,
-        .exponent_b,
-        .fraction_b,
+        .operand_sign_a,
+        .unbiased_exponent_a,
+        .operand_fraction_a,
+        .operand_sign_b,
+        .unbiased_exponent_b,
+        .operand_fraction_b,
         .sorted_sign_a,
         .sorted_exponent_a,
         .sorted_fraction_a,
@@ -195,9 +208,9 @@ module pipelined_fpu(
     );
 
 
-    rounding_logic
-    rounding_logic(
-        .op,
+    rounding_unit
+    rounding_unit(
+        .sticky_bit_select,
         .normalized_exponent,
         .normalized_fraction,
         .remainder,
@@ -212,12 +225,12 @@ module pipelined_fpu(
         .exponent_select,
         .fraction_msb_select,
         .fraction_lsbs_select,
-        .sign_a,
-        .sign_b,
-        .exponent_a,
-        .exponent_b,
-        .fraction_a,
-        .fraction_b,
+        .operand_sign_a,
+        .operand_sign_b,
+        .operand_exponent_a,
+        .operand_exponent_b,
+        .operand_fraction_a,
+        .operand_fraction_b,
         .result_sign,
         .result_exponent,
         .result_fraction,

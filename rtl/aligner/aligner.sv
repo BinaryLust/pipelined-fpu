@@ -3,12 +3,12 @@
 module aligner(
     input   logic          exchange_operands,
     input   logic  [4:0]   align_shift_count,
-    input   logic          sign_a,
-    input   logic  [7:0]   exponent_a,
-    input   logic  [23:0]  fraction_a,
-    input   logic          sign_b,
-    input   logic  [7:0]   exponent_b,
-    input   logic  [23:0]  fraction_b,
+    input   logic          operand_sign_a,
+    input   logic  [7:0]   unbiased_exponent_a,
+    input   logic  [23:0]  operand_fraction_a,
+    input   logic          operand_sign_b,
+    input   logic  [7:0]   unbiased_exponent_b,
+    input   logic  [23:0]  operand_fraction_b,
 
     output  logic          sorted_sign_a,
     output  logic  [7:0]   sorted_exponent_a,
@@ -24,15 +24,15 @@ module aligner(
 
 
     // sort operands, we will only do this for addition and subtraction operations, for all other operations we just pass the values through.
-    operand_exchanger
-    operand_exchanger(
+    aligner_operand_exchanger
+    aligner_operand_exchanger(
         .exchange_operands,
-        .sign_a,
-        .exponent_a,
-        .fraction_a,
-        .sign_b,
-        .exponent_b,
-        .fraction_b,
+        .operand_sign_a,
+        .unbiased_exponent_a,
+        .operand_fraction_a,
+        .operand_sign_b,
+        .unbiased_exponent_b,
+        .operand_fraction_b,
         .sorted_sign_a,
         .sorted_exponent_a,
         .sorted_fraction_a,
@@ -43,8 +43,8 @@ module aligner(
 
 
     // we do the actual alignment with this right shifter
-    right_shifter
-    right_shifter(
+    aligner_right_shifter
+    aligner_right_shifter(
         .shift_count    (align_shift_count),
         .operand        (sorted_fraction_b),
         .result         (right_shifter_result)

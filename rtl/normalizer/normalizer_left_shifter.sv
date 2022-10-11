@@ -1,6 +1,6 @@
 
 
-module left_shifter(
+module normalizer_left_shifter(
     input   logic  [4:0]   shift_count,
     input   logic  [48:0]  operand,
 
