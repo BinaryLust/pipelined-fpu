@@ -30,8 +30,8 @@ module pipelined_fpu_tb();
 
 
     // output wires
-    logic        done;
-    logic        busy;
+    logic        stall;
+    logic        valid;
     logic [31:0] result;
 
 
@@ -42,7 +42,7 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    pipelined_fpu
+    pipelined_fpu_test_synthesis
     dut(
         .clk,
         .reset,
@@ -50,8 +50,8 @@ module pipelined_fpu_tb();
         .start,
         .operand_a,
         .operand_b,
-        .done,
-        .busy,
+        .stall,
+        .valid,
         .result
     );
 
@@ -63,13 +63,19 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed            = 186787;
+    integer            seed            = 987632;
     integer            errors          = 0;
-    integer            cycles_per_test = 10000;
+    integer            cycles_per_test = 500000; // 50k is equal to the old 10k test size, 1.5M is equal to the old 300k test size
+    logic      [2:0]   operation;
+    logic      [31:0]  binary_a;
+    logic      [31:0]  binary_b;
     shortreal          float_a;
     shortreal          float_b;
     shortreal          float_result;
     logic      [31:0]  expected_result;
+    logic      [2:0]   op_queue[$];
+    logic      [31:0]  a_queue[$];
+    logic      [31:0]  b_queue[$];
 
 
     /*********************************************************************************************************************************************************/
@@ -114,352 +120,73 @@ module pipelined_fpu_tb();
         // in order to make sure we are able to shift the whole 26 bits max range.
 
 
-        // run the constrained random test for addition
+        // run the constrained random test
         repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd0;
+            #10
+            wait(~stall)
+            start           = 1'b1;
+            op              = $urandom_range(3'd0, 3'd4);
             operand_a       = rand_float();
             operand_b       = rand_float();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
+            op_queue.push_front(op);
+            a_queue.push_front(operand_a);
+            b_queue.push_front(operand_b);
         end
- 
 
-        // run a completely random test for addition
+
+        // run a completely random test
         repeat(cycles_per_test) begin
             @(posedge clk)
-            op              = 3'd0;
+            #10
+            wait(~stall)
+            start           = 1'b1;
+            op              = $urandom_range(3'd0, 3'd4);
             operand_a       = $urandom();
             operand_b       = $urandom();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
-
-
-        // run the constrained random test for subtraction
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd1;
-            operand_a       = rand_float();
-            operand_b       = rand_float();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
- 
-
-        // run a completely random test for subtraction
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd1;
-            operand_a       = $urandom();
-            operand_b       = $urandom();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
-
-
-        // run the constrained random test for square root
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd4;
-            start           = 1'b1;
-            operand_b       = rand_float();
-
-            @(posedge clk);
-            start           = 1'b0;
-
-            @(posedge done);
-            @(negedge clk)
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
-
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
-
-
-        // run a completely random test for square root
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd4;
-            start           = 1'b1;
-            operand_b       = $urandom();
-
-            @(posedge clk);
-            start           = 1'b0;
-
-            @(posedge done);
-            @(negedge clk)
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
-
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
-
-
-        // run the constrained random test for multiplication
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd2;
-            operand_a       = rand_float();
-            operand_b       = rand_float();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
- 
-
-        // run a completely random test for multiplication
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd2;
-            operand_a       = $urandom();
-            operand_b       = $urandom();
- 
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
-
-
-        // run the constrained random test for division
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd3;
-            start           = 1'b1;
-            operand_a       = rand_float();
-            operand_b       = rand_float();
- 
-            @(posedge clk);
-            start           = 1'b0;
- 
-            @(posedge done);
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
-        end
- 
-        // run a completely random test for division
-        repeat(cycles_per_test) begin
-            @(posedge clk)
-            op              = 3'd3;
-            start           = 1'b1;
-            operand_a       = $urandom();
-            operand_b       = $urandom();
- 
-            @(posedge clk);
-            start           = 1'b0;
- 
-            @(posedge done);
-            @(negedge clk)
-            float_a         = $bitstoshortreal(operand_a);
-            float_b         = $bitstoshortreal(operand_b);
-            float_result    = $bitstoshortreal(result);
-            expected_result = expected();
- 
-            if(result != expected_result) begin
-                $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g",
-                    float_a,
-                    float_b,
-                    float_result,
-                    $bitstoshortreal(expected_result)
-                );
-                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                             result[31],          result[30:23],          result[22:0],
-                    expected_result[31], expected_result[30:23], expected_result[22:0],
-                );
-                errors++;
-            end
+            op_queue.push_front(op);
+            a_queue.push_front(operand_a);
+            b_queue.push_front(operand_b);
         end
 
 
         $display("Total Errors: %d", errors);
 
         $stop;
+    end
+
+
+    always begin
+        @(posedge clk)
+        #10
+        wait(valid)
+        operation       = op_queue.pop_back();
+        binary_a        = a_queue.pop_back();
+        binary_b        = b_queue.pop_back();
+        float_a         = $bitstoshortreal(binary_a);
+        float_b         = $bitstoshortreal(binary_b);
+        float_result    = $bitstoshortreal(result);
+        expected_result = expected(operation, binary_a, binary_b, float_a, float_b);
+
+        if(result != expected_result) begin
+            case(operation)
+                3'd0: $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
+                3'd1: $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
+                3'd2: $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
+                3'd3: $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
+                3'd4: $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g", float_b, float_result, $bitstoshortreal(expected_result));
+            endcase
+
+            $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                         result[31],          result[30:23],          result[22:0],
+                expected_result[31], expected_result[30:23], expected_result[22:0],
+            );
+            $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                         result[31],          result[30:23],          result[22:0],
+                expected_result[31], expected_result[30:23], expected_result[22:0],
+            );
+            errors++;
+        end
     end
     // synopsys translate_on
 
@@ -545,17 +272,17 @@ module pipelined_fpu_tb();
     endfunction
 
 
-    function logic [31:0] expected();
+    function logic [31:0] expected(logic [2:0] operation, logic [31:0] binary_a, logic[31:0] binary_b, shortreal float_a, shortreal float_b);
         automatic logic  [31:0]  temp;
-        automatic logic          a_denorm = ~|operand_a[30:23] & |operand_a[22:0];
-        automatic logic          b_denorm = ~|operand_b[30:23] & |operand_b[22:0];
+        automatic logic          a_denorm = ~|binary_a[30:23] & |binary_a[22:0];
+        automatic logic          b_denorm = ~|binary_b[30:23] & |binary_b[22:0];
 
 
-        float_a = (a_denorm) ? $bitstoshortreal({operand_a[31], 8'd0, 23'd0}) : float_a;
-        float_b = (b_denorm) ? $bitstoshortreal({operand_b[31], 8'd0, 23'd0}) : float_b;
+        float_a = (a_denorm) ? $bitstoshortreal({binary_a[31], 8'd0, 23'd0}) : float_a;
+        float_b = (b_denorm) ? $bitstoshortreal({binary_b[31], 8'd0, 23'd0}) : float_b;
 
 
-        casex(op)
+        casex(operation)
             3'd0:    temp = $shortrealtobits(float_a + float_b);
             3'd1:    temp = $shortrealtobits(float_a - float_b);
             3'd2:    temp = $shortrealtobits(float_a * float_b);

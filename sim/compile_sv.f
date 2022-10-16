@@ -36,6 +36,9 @@
 ../rtl/result_selecter/result_fraction_msb_selecter.sv
 ../rtl/result_selecter/result_fraction_lsbs_selecter.sv
 ../rtl/result_selecter/result_selecter.sv
+../rtl/fpu_registers/fpu_registers_stage2.sv
+../rtl/fpu_registers/fpu_registers_stage3.sv
 ../rtl/pipelined_fpu.sv
+../rtl/pipelined_fpu_test_synthesis.sv
 pipelined_fpu_tb.sv
 

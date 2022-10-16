@@ -9,17 +9,18 @@ module control_logic(
     input   logic                                        operand_sign_b,
     input   logic                                [7:0]   operand_exponent_b,
     input   logic                                [23:0]  operand_fraction_b,
-    input   logic                                        sorted_sign_a,
-    input   logic                                [7:0]   sorted_exponent_a,
-    input   logic                                        sorted_sign_b,
-    input   logic                                [7:0]   sorted_exponent_b,
+    input   logic                                        aligned_sign_a,
+    input   logic                                [7:0]   aligned_exponent_a,
+    input   logic                                        aligned_sign_b,
+    input   logic                                [7:0]   aligned_exponent_b,
 
     output  logic                                        exchange_operands,
     output  logic                                [4:0]   align_shift_count,
     output  logic                                        result_sign,
     output  calculation::calculation_select              calculation_select,
-    output  logic                                        divider_mode,
-    output  logic                                        divider_start,
+    output  logic                                        division_mode,
+    output  logic                                        division_op,
+    output  logic                                        normal_op,
     output  logic                                        sticky_bit_select,
     output  sign::sign_select                            sign_select,
     output  exponent::exponent_select                    exponent_select,
@@ -63,7 +64,7 @@ module control_logic(
 
 
         // calculate the right shift count for the alignment step
-        exponent_difference = sorted_exponent_a - sorted_exponent_b;
+        exponent_difference = aligned_exponent_a - aligned_exponent_b;
         case(op)
             3'd0,
             3'd1:    align_shift_count = (~|exponent_difference[7:5]) ? exponent_difference[4:0] : 5'd31; // for addition and subtraction, this checks to make sure the upper 3 bits of the difference are zero, if that is so then the difference is 31 or less and it is used.
@@ -74,9 +75,9 @@ module control_logic(
 
         // calculate final sign value
         case(op)
-            3'd0:    result_sign = sorted_sign_a;                                        // for add
-            3'd1:    result_sign = (exchange_operands) ? ~sorted_sign_a : sorted_sign_a; // for sub
-            default: result_sign = operand_sign_a ^ operand_sign_b;                      // for mul, div
+            3'd0:    result_sign = aligned_sign_a;                                         // for add
+            3'd1:    result_sign = (exchange_operands) ? ~aligned_sign_a : aligned_sign_a; // for sub
+            default: result_sign = operand_sign_a ^ operand_sign_b;                        // for mul, div
         endcase
 
 
@@ -91,9 +92,16 @@ module control_logic(
         endcase
 
 
-        // select division unit mode and starting conditions
-        divider_mode  = (op == 3'd4);                      // if op type is square root then set divider_mode to 1
-        divider_start = (op == 3'd3 | op == 3'd4) & start; // if optype is divide or square root and start line is high then enable divider unit.
+        // select division unit mode, and operation type bits.
+        division_mode = 1'b0; division_op = 1'b0; normal_op = 1'b0;                              // set default values
+        casex({start, op})
+            {1'b1, 3'd0},
+            {1'b1, 3'd1},
+            {1'b1, 3'd2}: normal_op = 1'b1;                                                      // this is a normal single cycle operation
+            {1'b1, 3'd3}: begin division_mode = 1'b0; division_op = 1'b1; end
+            {1'b1, 3'd4}: begin division_mode = 1'b1; division_op = 1'b1; end
+            default:      begin division_mode = 1'b0; division_op = 1'b0; normal_op = 1'b0; end
+        endcase
 
 
         // choose sticky bits
@@ -289,7 +297,7 @@ module control_logic(
             {3'd1, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sub:  normal result
             {3'd2, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // mult: normal result
             {3'd3, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // div:  normal result
-            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sqrt: operand_sign_b == 0 then normal result
+            {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sqrt: operand_sign_b == 0 then normal result
             {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::ZEROS};   // sqrt: operand_sign_b == 1 then -1.#IND
 
             default:                                  {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // zero

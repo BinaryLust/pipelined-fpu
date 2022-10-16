@@ -50,6 +50,12 @@
 // for some reason we haven't added signaling nan's to the result selecter but we aren't getting errors.
 
 
+// timing info
+// fpu_stage 1 to fpu_stage 2 slack -12.281
+// fpu_stage 2 to fpu_stage 3 slack -11.022
+// fpu_stage 3 to fpu_stage 4 slack -15.609
+
+
 module pipelined_fpu(
     input   logic          clk,
     input   logic          reset,
@@ -58,12 +64,55 @@ module pipelined_fpu(
     input   logic  [31:0]  operand_a,
     input   logic  [31:0]  operand_b,
 
-    output  logic          done,
-    output  logic          busy,
+    output  logic          stall,
+    output  logic          valid,
     output  logic  [31:0]  result
     );
 
 
+    // stage 2 registers
+    logic                                        fpu_stage2_operand_sign_a;
+    logic                                [7:0]   fpu_stage2_operand_exponent_a;
+    logic                                [23:0]  fpu_stage2_operand_fraction_a;
+    logic                                        fpu_stage2_operand_sign_b;
+    logic                                [7:0]   fpu_stage2_operand_exponent_b;
+    logic                                [23:0]  fpu_stage2_operand_fraction_b;
+    logic                                [7:0]   fpu_stage2_aligned_exponent_a;
+    logic                                [7:0]   fpu_stage2_aligned_exponent_b;
+    logic                                [23:0]  fpu_stage2_aligned_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
+    logic                                [48:0]  fpu_stage2_aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    calculation::calculation_select              fpu_stage2_calculation_select;
+    logic                                        fpu_stage2_division_mode;
+    logic                                        fpu_stage2_division_op;
+    logic                                        fpu_stage2_normal_op;
+    logic                                        fpu_stage2_sticky_bit_select;
+    logic                                        fpu_stage2_result_sign;
+    sign::sign_select                            fpu_stage2_sign_select;
+    exponent::exponent_select                    fpu_stage2_exponent_select;
+    fraction_msb::fraction_msb_select            fpu_stage2_fraction_msb_select;
+    fraction_lsbs::fraction_lsbs_select          fpu_stage2_fraction_lsbs_select;
+
+
+    // stage 3 registers
+    logic                                        fpu_stage3_operand_sign_a;
+    logic                                [7:0]   fpu_stage3_operand_exponent_a;
+    logic                                [23:0]  fpu_stage3_operand_fraction_a;
+    logic                                        fpu_stage3_operand_sign_b;
+    logic                                [7:0]   fpu_stage3_operand_exponent_b;
+    logic                                [23:0]  fpu_stage3_operand_fraction_b;
+    logic                                [26:0]  fpu_stage3_remainder;
+    logic                                [9:0]   fpu_stage3_calculated_exponent;
+    logic                                [48:0]  fpu_stage3_calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    logic                                        fpu_stage3_sticky_bit_select;
+    logic                                        fpu_stage3_result_sign;
+    logic                                        fpu_stage3_result_valid;
+    sign::sign_select                            fpu_stage3_sign_select;
+    exponent::exponent_select                    fpu_stage3_exponent_select;
+    fraction_msb::fraction_msb_select            fpu_stage3_fraction_msb_select;
+    fraction_lsbs::fraction_lsbs_select          fpu_stage3_fraction_lsbs_select;
+
+
+    // combinational signals
     logic                                        operand_sign_a;
     logic                                [7:0]   operand_exponent_a;
     logic                                [23:0]  operand_fraction_a;
@@ -77,21 +126,22 @@ module pipelined_fpu(
 
     logic                                        exchange_operands;
 
-    logic                                        sorted_sign_a;
-    logic                                        sorted_sign_b;
-    logic                                [7:0]   sorted_exponent_a;
-    logic                                [7:0]   sorted_exponent_b;
-    logic                                [23:0]  sorted_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
-    logic                                [23:0]  sorted_fraction_b;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
-
     logic                                [4:0]   align_shift_count;
+    logic                                        aligned_sign_a;
+    logic                                        aligned_sign_b;
+    logic                                [7:0]   aligned_exponent_a;
+    logic                                [7:0]   aligned_exponent_b;
+    logic                                [23:0]  aligned_fraction_a;     // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
     logic                                [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
     logic                                [26:0]  remainder;
 
     calculation::calculation_select              calculation_select;
-    logic                                        divider_mode;
-    logic                                        divider_start;
+    logic                                        division_mode;
+    logic                                        division_op;
+    logic                                        normal_op;
+    logic                                        division_done;
+    logic                                        result_valid;
 
     logic                                [9:0]   calculated_exponent;
     logic                                [48:0]  calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
@@ -120,6 +170,10 @@ module pipelined_fpu(
         operand_sign_b     = operand_b[31];
         operand_exponent_b = operand_b[30:23];
         operand_fraction_b = {1'b1, operand_b[22:0]};  // add leading 1 bit to fraction, the leading bit will always be 1 because we treat subnormals as zero here.
+
+        stall              = fpu_stage2_division_op & ~division_done;
+        result_valid       = (fpu_stage2_division_op & division_done) | fpu_stage2_normal_op;
+        valid              = fpu_stage3_result_valid;
     end
 
 
@@ -133,16 +187,17 @@ module pipelined_fpu(
         .operand_sign_b,
         .operand_exponent_b,
         .operand_fraction_b,
-        .sorted_sign_a,
-        .sorted_exponent_a,
-        .sorted_sign_b,
-        .sorted_exponent_b,
+        .aligned_sign_a,
+        .aligned_exponent_a,
+        .aligned_sign_b,
+        .aligned_exponent_b,
         .exchange_operands,
         .align_shift_count,
         .result_sign,
         .calculation_select,
-        .divider_mode,
-        .divider_start,
+        .division_mode,
+        .division_op,
+        .normal_op,
         .sticky_bit_select,
         .sign_select,
         .exponent_select,
@@ -170,13 +225,60 @@ module pipelined_fpu(
         .operand_sign_b,
         .unbiased_exponent_b,
         .operand_fraction_b,
-        .sorted_sign_a,
-        .sorted_exponent_a,
-        .sorted_fraction_a,
-        .sorted_sign_b,
-        .sorted_exponent_b,
-        .sorted_fraction_b,
+        .aligned_sign_a,
+        .aligned_exponent_a,
+        .aligned_fraction_a,
+        .aligned_sign_b,
+        .aligned_exponent_b,
         .aligned_fraction_b
+    );
+
+
+    fpu_registers_stage2
+    fpu_registers_stage2(
+        .clk,
+        .reset,
+        .stall,
+        .operand_sign_a,
+        .operand_exponent_a,
+        .operand_fraction_a,
+        .operand_sign_b,
+        .operand_exponent_b,
+        .operand_fraction_b,
+        .aligned_exponent_a,
+        .aligned_exponent_b,
+        .aligned_fraction_a,
+        .aligned_fraction_b,
+        .result_sign,
+        .calculation_select,
+        .division_mode,
+        .division_op,
+        .normal_op,
+        .sticky_bit_select,
+        .sign_select,
+        .exponent_select,
+        .fraction_msb_select,
+        .fraction_lsbs_select,
+        .fpu_stage2_operand_sign_a,
+        .fpu_stage2_operand_exponent_a,
+        .fpu_stage2_operand_fraction_a,
+        .fpu_stage2_operand_sign_b,
+        .fpu_stage2_operand_exponent_b,
+        .fpu_stage2_operand_fraction_b,
+        .fpu_stage2_aligned_exponent_a,
+        .fpu_stage2_aligned_exponent_b,
+        .fpu_stage2_aligned_fraction_a,
+        .fpu_stage2_aligned_fraction_b,
+        .fpu_stage2_result_sign,
+        .fpu_stage2_calculation_select,
+        .fpu_stage2_division_mode,
+        .fpu_stage2_division_op,
+        .fpu_stage2_normal_op,
+        .fpu_stage2_sticky_bit_select,
+        .fpu_stage2_sign_select,
+        .fpu_stage2_exponent_select,
+        .fpu_stage2_fraction_msb_select,
+        .fpu_stage2_fraction_lsbs_select
     );
 
 
@@ -184,25 +286,63 @@ module pipelined_fpu(
     calculation_unit(
         .clk,
         .reset,    
-        .calculation_select,
-        .divider_mode,
-        .divider_start,
-        .sorted_exponent_a,
-        .sorted_fraction_a,
-        .sorted_exponent_b,
-        .aligned_fraction_b,
-        .busy,
-        .done,
+        .calculation_select     (fpu_stage2_calculation_select),
+        .division_mode          (fpu_stage2_division_mode),
+        .division_op            (fpu_stage2_division_op),
+        .aligned_exponent_a     (fpu_stage2_aligned_exponent_a),
+        .aligned_fraction_a     (fpu_stage2_aligned_fraction_a),
+        .aligned_exponent_b     (fpu_stage2_aligned_exponent_b),
+        .aligned_fraction_b     (fpu_stage2_aligned_fraction_b),
+        .done                   (division_done),
         .remainder,
         .calculated_exponent,
         .calculated_fraction
     );
 
 
-    normalizer
-    normalizer(
+    fpu_registers_stage3
+    fpu_registers_stage3(
+        .clk,
+        .reset,
+        .fpu_stage2_operand_sign_a,
+        .fpu_stage2_operand_exponent_a,
+        .fpu_stage2_operand_fraction_a,
+        .fpu_stage2_operand_sign_b,
+        .fpu_stage2_operand_exponent_b,
+        .fpu_stage2_operand_fraction_b,
         .calculated_exponent,
         .calculated_fraction,
+        .remainder,
+        .fpu_stage2_result_sign,
+        .result_valid,
+        .fpu_stage2_sticky_bit_select,
+        .fpu_stage2_sign_select,
+        .fpu_stage2_exponent_select,
+        .fpu_stage2_fraction_msb_select,
+        .fpu_stage2_fraction_lsbs_select,
+        .fpu_stage3_operand_sign_a,
+        .fpu_stage3_operand_exponent_a,
+        .fpu_stage3_operand_fraction_a,
+        .fpu_stage3_operand_sign_b,
+        .fpu_stage3_operand_exponent_b,
+        .fpu_stage3_operand_fraction_b,
+        .fpu_stage3_calculated_exponent,
+        .fpu_stage3_calculated_fraction,
+        .fpu_stage3_remainder,
+        .fpu_stage3_result_sign,
+        .fpu_stage3_result_valid,
+        .fpu_stage3_sticky_bit_select,
+        .fpu_stage3_sign_select,
+        .fpu_stage3_exponent_select,
+        .fpu_stage3_fraction_msb_select,
+        .fpu_stage3_fraction_lsbs_select
+    );
+
+
+    normalizer
+    normalizer(
+        .calculated_exponent    (fpu_stage3_calculated_exponent),
+        .calculated_fraction    (fpu_stage3_calculated_fraction),
         .normalized_exponent,
         .normalized_fraction
     );
@@ -210,10 +350,10 @@ module pipelined_fpu(
 
     rounding_unit
     rounding_unit(
-        .sticky_bit_select,
+        .sticky_bit_select      (fpu_stage3_sticky_bit_select),
         .normalized_exponent,
         .normalized_fraction,
-        .remainder,
+        .remainder              (fpu_stage3_remainder),
         .result_exponent,
         .result_fraction
     );
@@ -221,17 +361,17 @@ module pipelined_fpu(
 
     result_selecter
     result_selecter(
-        .sign_select,
-        .exponent_select,
-        .fraction_msb_select,
-        .fraction_lsbs_select,
-        .operand_sign_a,
-        .operand_sign_b,
-        .operand_exponent_a,
-        .operand_exponent_b,
-        .operand_fraction_a,
-        .operand_fraction_b,
-        .result_sign,
+        .sign_select             (fpu_stage3_sign_select),
+        .exponent_select         (fpu_stage3_exponent_select),
+        .fraction_msb_select     (fpu_stage3_fraction_msb_select),
+        .fraction_lsbs_select    (fpu_stage3_fraction_lsbs_select),
+        .operand_sign_a          (fpu_stage3_operand_sign_a),
+        .operand_sign_b          (fpu_stage3_operand_sign_b),
+        .operand_exponent_a      (fpu_stage3_operand_exponent_a),
+        .operand_exponent_b      (fpu_stage3_operand_exponent_b),
+        .operand_fraction_a      (fpu_stage3_operand_fraction_a),
+        .operand_fraction_b      (fpu_stage3_operand_fraction_b),
+        .result_sign             (fpu_stage3_result_sign),
         .result_exponent,
         .result_fraction,
         .result
