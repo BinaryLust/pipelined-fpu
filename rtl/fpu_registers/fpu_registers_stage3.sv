@@ -14,7 +14,9 @@ module fpu_registers_stage3(
     input   logic                                [26:0]  remainder,
     input   logic                                        fpu_stage2_result_sign,
     input   logic                                        result_valid,
-    input   logic                                        fpu_stage2_sticky_bit_select,
+    input   logic                                        fpu_stage2_normalize,
+    input   logic                                        fpu_stage2_rounding_mode,
+    input   logic                                [1:0]   fpu_stage2_sticky_bit_select,
     input   sign::sign_select                            fpu_stage2_sign_select,
     input   exponent::exponent_select                    fpu_stage2_exponent_select,
     input   fraction_msb::fraction_msb_select            fpu_stage2_fraction_msb_select,
@@ -31,7 +33,9 @@ module fpu_registers_stage3(
     output  logic                                [26:0]  fpu_stage3_remainder,
     output  logic                                        fpu_stage3_result_sign,
     output  logic                                        fpu_stage3_result_valid,
-    output  logic                                        fpu_stage3_sticky_bit_select,
+    output  logic                                        fpu_stage3_normalize,
+    output  logic                                        fpu_stage3_rounding_mode,
+    output  logic                                [1:0]   fpu_stage3_sticky_bit_select,
     output  sign::sign_select                            fpu_stage3_sign_select,
     output  exponent::exponent_select                    fpu_stage3_exponent_select,
     output  fraction_msb::fraction_msb_select            fpu_stage3_fraction_msb_select,
@@ -58,7 +62,9 @@ module fpu_registers_stage3(
     // control control registers
     always_ff @(posedge clk or posedge reset) begin
         fpu_stage3_result_valid         <= (reset) ? 1'b0                 : result_valid;
-        fpu_stage3_sticky_bit_select    <= (reset) ? 1'b0                 : fpu_stage2_sticky_bit_select;
+        fpu_stage3_normalize            <= (reset) ? 1'b0                 : fpu_stage2_normalize;
+        fpu_stage3_rounding_mode        <= (reset) ? 1'b0                 : fpu_stage2_rounding_mode;
+        fpu_stage3_sticky_bit_select    <= (reset) ? 2'd0                 : fpu_stage2_sticky_bit_select;
         fpu_stage3_sign_select          <= (reset) ? sign::ZERO           : fpu_stage2_sign_select;
         fpu_stage3_exponent_select      <= (reset) ? exponent::ZEROS      : fpu_stage2_exponent_select;
         fpu_stage3_fraction_msb_select  <= (reset) ? fraction_msb::ZERO   : fpu_stage2_fraction_msb_select;

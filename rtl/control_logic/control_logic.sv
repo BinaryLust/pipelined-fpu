@@ -16,12 +16,15 @@ module control_logic(
 
     output  logic                                        exchange_operands,
     output  logic                                [4:0]   align_shift_count,
+    output  logic                                        aligned_fraction_a_select,
     output  logic                                        result_sign,
     output  calculation::calculation_select              calculation_select,
     output  logic                                        division_mode,
     output  logic                                        division_op,
     output  logic                                        normal_op,
-    output  logic                                        sticky_bit_select,
+    output  logic                                        normalize,
+    output  logic                                        rounding_mode,
+    output  logic                                [1:0]   sticky_bit_select,
     output  sign::sign_select                            sign_select,
     output  exponent::exponent_select                    exponent_select,
     output  fraction_msb::fraction_msb_select            fraction_msb_select,
@@ -40,7 +43,9 @@ module control_logic(
     logic                 exponent_all_zeros_b;
     logic                 exponent_all_ones_b;
     logic                 fraction_all_zeros_b;
-    logic         [7:0]   exponent_difference;
+    logic         [8:0]   exponent_difference;
+    logic                 exponent_over;
+    logic                 exponent_under;
 
 
     always_comb begin
@@ -64,13 +69,26 @@ module control_logic(
 
 
         // calculate the right shift count for the alignment step
-        exponent_difference = aligned_exponent_a - aligned_exponent_b;
+        exponent_difference = ((op == 3'd5) ? 9'd30 : {aligned_exponent_a[7], aligned_exponent_a}) - {aligned_exponent_b[7], aligned_exponent_b};
         case(op)
             3'd0,
-            3'd1:    align_shift_count = (~|exponent_difference[7:5]) ? exponent_difference[4:0] : 5'd31; // for addition and subtraction, this checks to make sure the upper 3 bits of the difference are zero, if that is so then the difference is 31 or less and it is used.
+            3'd1,
+            3'd5:    align_shift_count = (~|exponent_difference[8:5]) ? exponent_difference[4:0] : 5'd31; // for addition, subtraction and float to int. This saturates at the value 31, if any of the upper 4 bits are set.
             3'd4:    align_shift_count = (operand_exponent_b[0]) ? 5'd1 : 5'd0; // for square root. the exponent must be an even number because it has to be divided by 2 (this is to find the square root of the exponent), so we check if it's even and right shift by 1 if it's not.
             default: align_shift_count = 5'd0;
         endcase
+        
+        // we can use any of the 3 pieces version of code below to detect if the exponent is out of range for float to int conversion
+        //exponent_over  = (signed'(exponent_difference) < signed'(9'd0));                          // exponent difference version
+        //exponent_under = (signed'(exponent_difference) > signed'(9'd31));
+        //exponent_over  = (signed'({aligned_exponent_b[7], aligned_exponent_b}) > signed'(9'd30)); // aligned exponent version
+        //exponent_under = (signed'({aligned_exponent_b[7], aligned_exponent_b}) < signed'(-9'd1));
+        exponent_over  = (operand_exponent_b > 8'd157);                                             // raw operand exponent version
+        exponent_under = (operand_exponent_b < 8'd126);
+
+
+        // choose aligned fraction a value
+        aligned_fraction_a_select = (op == 3'd5) ? 1'b1 : 1'b0; // chose all zeros as the fraction value if the op is float to int
 
 
         // calculate final sign value
@@ -88,6 +106,7 @@ module control_logic(
             3'd2:    calculation_select = calculation::MUL;
             3'd3:    calculation_select = calculation::DIV;
             3'd4:    calculation_select = calculation::SQRT;
+            3'd5:    calculation_select = (operand_sign_b) ? calculation::SUB : calculation::ADD;
             default: calculation_select = calculation::ADD;
         endcase
 
@@ -97,15 +116,29 @@ module control_logic(
         casex({start, op})
             {1'b1, 3'd0},
             {1'b1, 3'd1},
-            {1'b1, 3'd2}: normal_op = 1'b1;                                                      // this is a normal single cycle operation
+            {1'b1, 3'd2},
+            {1'b1, 3'd5}: normal_op = 1'b1;                                                      // this is a normal single cycle operation
             {1'b1, 3'd3}: begin division_mode = 1'b0; division_op = 1'b1; end
             {1'b1, 3'd4}: begin division_mode = 1'b1; division_op = 1'b1; end
             default:      begin division_mode = 1'b0; division_op = 1'b0; normal_op = 1'b0; end
         endcase
 
 
+        // enable normalization if we aren't doing a float to int conversion
+        normalize = (op != 3'd5);
+
+
+        // choose rounding mode
+        rounding_mode = (op == 3'd5);
+
+
         // choose sticky bits
-        sticky_bit_select = ((op == 3'd3) | (op == 3'd4)) ? 1'b1 : 1'b0;
+        casex(op)
+            3'd3,
+            3'd4:    sticky_bit_select = 2'd1;
+            3'd5:    sticky_bit_select = 2'd3;
+            default: sticky_bit_select = 2'd0;
+        endcase
 
 
         // choose final result
@@ -135,6 +168,8 @@ module control_logic(
 
             {3'd4, DONTCARE,  INFINITE,  1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::ZEROS};   // sqrt: if operand_sign_b is 1 then -1.#IND
             {3'd4, DONTCARE,  INFINITE,  1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ONES,   fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // sqrt: if operand_sign_b is 0 then +infinity
+
+            {3'd5, DONTCARE,  INFINITE,  1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // float to int: 32'h8000000
 
             // 8'b0?0??10? // is_zero
             {3'd0, NORMAL,    ZERO,      1'b?, 1'b?},
@@ -175,6 +210,9 @@ module control_logic(
 
             {3'd4, DONTCARE,  ZERO,      1'b?, 1'b?},
             {3'd4, DONTCARE,  SUBNORMAL, 1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::B,      exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // sqrt: +/- zero
+
+            {3'd5, DONTCARE,  ZERO,      1'b?, 1'b?},
+            {3'd5, DONTCARE,  SUBNORMAL, 1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // float to int: zero
 
             // 8'b1?1????? // is_nnan and is_nan
             {3'd0, NAN,       NAN,       1'b0, 1'b1},
@@ -249,6 +287,8 @@ module control_logic(
 
             {3'd4, DONTCARE,  NAN,       1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::B};       // sqrt: quiet not a number (following x86 standards)
 
+            {3'd5, DONTCARE,  NAN,       1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // float to int: in systemverilog it should return 0 but in C code it should return 32'h8000000
+
             // 8'b1?0????? // is_nnan, is_nan must be zero but doesn't care about anything else.
             {3'd0, NAN,       NAN,       1'b1, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::A};       // add:  negative quiet not a number (following x86 standards)
             {3'd0, NORMAL,    NAN,       1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::B};       // add:  negative quiet not a number (following x86 standards)
@@ -292,6 +332,8 @@ module control_logic(
 
             {3'd4, DONTCARE,  NAN,       1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::B};       // sqrt: negative quiet not a number (following x86 standards)
 
+            {3'd5, DONTCARE,  NAN,       1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // float to int: in systemverilog it should return 0 but in C code it should return 32'h8000000
+
             // normal results
             {3'd0, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // add:  normal result
             {3'd1, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sub:  normal result
@@ -299,6 +341,13 @@ module control_logic(
             {3'd3, NORMAL,    NORMAL,    1'b?, 1'b?}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // div:  normal result
             {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b0}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT};  // sqrt: operand_sign_b == 0 then normal result
             {3'd4, DONTCARE,  NORMAL,    1'b?, 1'b1}: {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ONES,   fraction_msb::ONE,    fraction_lsbs::ZEROS};   // sqrt: operand_sign_b == 1 then -1.#IND
+            
+            {3'd5, DONTCARE,  NORMAL,    1'b?, 1'b?}: if(exponent_over)
+                                                          {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ONE,    exponent::ZEROS,   fraction_msb::ZERO,   fraction_lsbs::ZEROS};  // float to int: exponent too big
+                                                      else if(exponent_under)
+                                                          {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ZEROS,   fraction_msb::ZERO,   fraction_lsbs::ZEROS};  // float to int: exponent too small
+                                                      else
+                                                          {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::IRESULT, exponent::IRESULT, fraction_msb::IRESULT, fraction_lsbs::IRESULT};   // float to int: normal result
 
             default:                                  {sign_select, exponent_select, fraction_msb_select, fraction_lsbs_select} = {sign::ZERO,   exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};   // zero
         endcase

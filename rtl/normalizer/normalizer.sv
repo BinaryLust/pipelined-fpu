@@ -1,6 +1,7 @@
 
 
 module normalizer(
+    input   logic          normalize,
     input   logic  [9:0]   calculated_exponent,
     input   logic  [48:0]  calculated_fraction,    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
@@ -47,6 +48,7 @@ module normalizer(
 
     normalizer_exponent_selecter
     normalizer_exponent_selecter(
+        .normalize,
         .calculated_exponent,
         .added_exponent,
         .subtracted_exponent,
@@ -57,6 +59,7 @@ module normalizer(
 
     normalizer_fraction_selecter
     normalizer_fraction_selecter(
+        .normalize,
         .calculated_fraction,
         .left_shifter_result,
         .normalized_fraction

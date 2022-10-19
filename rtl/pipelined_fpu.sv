@@ -45,7 +45,7 @@
 // previous 1,499 LE, 168 regs, 7 9-bit multipliers, Fmax at 0C 274.57 MHz
 // previous 1,411 LE, 86 regs,  7 9-bit multipliers, Fmax at 0C 227.01 MHz
 // current  1,364 LE, 87 regs,  7 9-bit multipliers, Fmax at 0C 228.41 MHz
-
+// 1,509 LE, 515 regs, 67.29 MHz
 
 // for some reason we haven't added signaling nan's to the result selecter but we aren't getting errors.
 
@@ -54,6 +54,42 @@
 // fpu_stage 1 to fpu_stage 2 slack -12.281
 // fpu_stage 2 to fpu_stage 3 slack -11.022
 // fpu_stage 3 to fpu_stage 4 slack -15.609
+
+
+// for int to float we set the exponent as 31 with a mux, we take the lower 31 bits of the 32-bit int and inject those as the fraction if the sign of the int was negative we negate these bits first, then we just normalize the result with the normalizer unit.
+// we will probably have to insert a mux in the align stage to take the full 31 bits for a fraction, we can probably do the negate in the caclulation stage with the subtractor.
+// the b input to the calculation unit has to have {aligned_exponent_b, fpu_stage3_operand_fraction_b} as an input option from a mux.
+
+// int to float - add a fraction mux for fraction b with input {aligned_exponent_b, fpu_stage3_operand_fraction_b} before calculation unit
+// int to float - add an exponent mux for exponent b with input 8'd31 before calculation unit
+// both - add a fraction mux for fraction a with input 24'd0, this is to allow negations of the fraction to happen.
+
+
+
+
+// for float to int we take the fraction
+// we then append 8 0's to the back of it to make it 32-bits long
+// we then right shift this value by 31 - b_exponent places
+// if the sign bit of the float was negative we then invert this value
+// we should check the exponent for being zero, if it is the leading fraction bit should be 0 instead of 1?
+// we do a check on align_shift_count to tell if a float is too big or too small to be converted to int
+// if it's too small we set all 32 output bits to zeros, we check for too small by comparing to 31 if the shift amount is larger then the result is too small.
+// if it's too big we set the output value to 32'd80000000 (the most negative integer number), we check for too bit by checking if the msb of the shift amount is 1, if it is then the shift amount is negative and is too big.
+// we have to compare the result sign to the original sign of the number to make sure overflow hasn't happened, if it has we set the result value to 32'd80000000 (the most negative integer number).
+
+// the output result should map to the 2nd decimal digit of the rounded fraction and down, the fraction is in the format [xx.xxxx...]
+// so int[31:0] = fraction[48:17] // the leading most digit of the fraction should be a sign bit.
+
+// we need to add an extra control line to disable the normalizing unit for float to int.
+// it should just pass the original value through.
+
+// if we are going to round during float to int conversion then we might have an overflow if all the bits are ones, we must check for that.
+
+// we might want to check for overflow in the result control logic instead if we can pass the correct exponent down the pipeline
+
+// we should add absolute value instructions fabs to this later, as well as negate fneg, and min/max.
+
+// in c running a nan through float to int conversion gives 0x80000000 instead of 0 like here
 
 
 module pipelined_fpu(
@@ -81,11 +117,14 @@ module pipelined_fpu(
     logic                                [7:0]   fpu_stage2_aligned_exponent_b;
     logic                                [23:0]  fpu_stage2_aligned_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
     logic                                [48:0]  fpu_stage2_aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    logic                                        fpu_stage2_aligned_fraction_a_select;
     calculation::calculation_select              fpu_stage2_calculation_select;
     logic                                        fpu_stage2_division_mode;
     logic                                        fpu_stage2_division_op;
     logic                                        fpu_stage2_normal_op;
-    logic                                        fpu_stage2_sticky_bit_select;
+    logic                                        fpu_stage2_normalize;
+    logic                                        fpu_stage2_rounding_mode;
+    logic                                [1:0]   fpu_stage2_sticky_bit_select;
     logic                                        fpu_stage2_result_sign;
     sign::sign_select                            fpu_stage2_sign_select;
     exponent::exponent_select                    fpu_stage2_exponent_select;
@@ -103,7 +142,9 @@ module pipelined_fpu(
     logic                                [26:0]  fpu_stage3_remainder;
     logic                                [9:0]   fpu_stage3_calculated_exponent;
     logic                                [48:0]  fpu_stage3_calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
-    logic                                        fpu_stage3_sticky_bit_select;
+    logic                                        fpu_stage3_normalize;
+    logic                                        fpu_stage3_rounding_mode;
+    logic                                [1:0]   fpu_stage3_sticky_bit_select;
     logic                                        fpu_stage3_result_sign;
     logic                                        fpu_stage3_result_valid;
     sign::sign_select                            fpu_stage3_sign_select;
@@ -127,12 +168,14 @@ module pipelined_fpu(
     logic                                        exchange_operands;
 
     logic                                [4:0]   align_shift_count;
+    logic                                        aligned_fraction_a_select;
     logic                                        aligned_sign_a;
     logic                                        aligned_sign_b;
     logic                                [7:0]   aligned_exponent_a;
     logic                                [7:0]   aligned_exponent_b;
-    logic                                [23:0]  aligned_fraction_a;     // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
-    logic                                [48:0]  aligned_fraction_b;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    logic                                [23:0]  aligned_fraction_a;      // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
+    logic                                [23:0]  aligned_fraction_a_out;  // is [x.xxxx...]  format with 1 integer bits, 23 fractional bits
+    logic                                [48:0]  aligned_fraction_b;      // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
     logic                                [26:0]  remainder;
 
@@ -144,16 +187,18 @@ module pipelined_fpu(
     logic                                        result_valid;
 
     logic                                [9:0]   calculated_exponent;
-    logic                                [48:0]  calculated_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    logic                                [48:0]  calculated_fraction;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
+    logic                                        normalize;
     logic                                [9:0]   normalized_exponent;
-    logic                                [48:0]  normalized_fraction;    // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
+    logic                                [48:0]  normalized_fraction;     // is [xx.xxxx...] format with 2 integer bits, 47 fractional bits
 
-    logic                                        sticky_bit_select;
+    logic                                        rounding_mode;
+    logic                                [1:0]   sticky_bit_select;
 
     logic                                        result_sign;
     logic                                [9:0]   result_exponent;
-    logic                                [24:0]  result_fraction;        // is [xx.xxxx...] format with 2 integer bits, 23 fractional bits
+    logic                                [31:0]  result_fraction;         // is [xx.xxxx...] format with 2 integer bits, 30 fractional bits
 
     sign::sign_select                            sign_select;
     exponent::exponent_select                    exponent_select;
@@ -193,11 +238,14 @@ module pipelined_fpu(
         .aligned_exponent_b,
         .exchange_operands,
         .align_shift_count,
+        .aligned_fraction_a_select,
         .result_sign,
         .calculation_select,
         .division_mode,
         .division_op,
         .normal_op,
+        .normalize,
+        .rounding_mode,
         .sticky_bit_select,
         .sign_select,
         .exponent_select,
@@ -250,10 +298,13 @@ module pipelined_fpu(
         .aligned_fraction_a,
         .aligned_fraction_b,
         .result_sign,
+        .aligned_fraction_a_select,
         .calculation_select,
         .division_mode,
         .division_op,
         .normal_op,
+        .normalize,
+        .rounding_mode,
         .sticky_bit_select,
         .sign_select,
         .exponent_select,
@@ -270,15 +321,26 @@ module pipelined_fpu(
         .fpu_stage2_aligned_fraction_a,
         .fpu_stage2_aligned_fraction_b,
         .fpu_stage2_result_sign,
+        .fpu_stage2_aligned_fraction_a_select,
         .fpu_stage2_calculation_select,
         .fpu_stage2_division_mode,
         .fpu_stage2_division_op,
         .fpu_stage2_normal_op,
+        .fpu_stage2_normalize,
+        .fpu_stage2_rounding_mode,
         .fpu_stage2_sticky_bit_select,
         .fpu_stage2_sign_select,
         .fpu_stage2_exponent_select,
         .fpu_stage2_fraction_msb_select,
         .fpu_stage2_fraction_lsbs_select
+    );
+
+
+    aligned_fraction_selecter_a
+    aligned_fraction_selecter_a(
+        .aligned_fraction_a_select    (fpu_stage2_aligned_fraction_a_select),
+        .aligned_fraction_a_in        (fpu_stage2_aligned_fraction_a),
+        .aligned_fraction_a_out
     );
 
 
@@ -290,7 +352,7 @@ module pipelined_fpu(
         .division_mode          (fpu_stage2_division_mode),
         .division_op            (fpu_stage2_division_op),
         .aligned_exponent_a     (fpu_stage2_aligned_exponent_a),
-        .aligned_fraction_a     (fpu_stage2_aligned_fraction_a),
+        .aligned_fraction_a     (aligned_fraction_a_out),
         .aligned_exponent_b     (fpu_stage2_aligned_exponent_b),
         .aligned_fraction_b     (fpu_stage2_aligned_fraction_b),
         .done                   (division_done),
@@ -315,6 +377,8 @@ module pipelined_fpu(
         .remainder,
         .fpu_stage2_result_sign,
         .result_valid,
+        .fpu_stage2_normalize,
+        .fpu_stage2_rounding_mode,
         .fpu_stage2_sticky_bit_select,
         .fpu_stage2_sign_select,
         .fpu_stage2_exponent_select,
@@ -331,6 +395,8 @@ module pipelined_fpu(
         .fpu_stage3_remainder,
         .fpu_stage3_result_sign,
         .fpu_stage3_result_valid,
+        .fpu_stage3_normalize,
+        .fpu_stage3_rounding_mode,
         .fpu_stage3_sticky_bit_select,
         .fpu_stage3_sign_select,
         .fpu_stage3_exponent_select,
@@ -341,6 +407,7 @@ module pipelined_fpu(
 
     normalizer
     normalizer(
+        .normalize              (fpu_stage3_normalize),
         .calculated_exponent    (fpu_stage3_calculated_exponent),
         .calculated_fraction    (fpu_stage3_calculated_fraction),
         .normalized_exponent,
@@ -350,6 +417,8 @@ module pipelined_fpu(
 
     rounding_unit
     rounding_unit(
+        .normalize              (fpu_stage3_normalize),
+        .rounding_mode          (fpu_stage3_rounding_mode),
         .sticky_bit_select      (fpu_stage3_sticky_bit_select),
         .normalized_exponent,
         .normalized_fraction,

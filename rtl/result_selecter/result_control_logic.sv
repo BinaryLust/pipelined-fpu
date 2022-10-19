@@ -6,7 +6,7 @@ module result_control_logic(
     input   fraction_msb::fraction_msb_select            fraction_msb_select_in,
     input   fraction_lsbs::fraction_lsbs_select          fraction_lsbs_select_in,
     input   logic                                [9:0]   result_exponent,
-    input   logic                                [24:0]  result_fraction,
+    input   logic                                [31:0]  result_fraction,
 
     output  sign::sign_select                            sign_select_out,
     output  exponent::exponent_select                    exponent_select_out,
@@ -22,7 +22,7 @@ module result_control_logic(
 
     always_comb begin
         // check the bounds of the result
-        result_zero      = ~|result_fraction;
+        result_zero      = ~|result_fraction; // might only need to check the upper 24-25 bits? like before.
         result_overflow  = (signed'(result_exponent) >= signed'(10'd255));
         result_underflow = (signed'(result_exponent) <= signed'(10'd0));
 

@@ -63,9 +63,15 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed            = 987632;
-    integer            errors          = 0;
-    integer            cycles_per_test = 500000; // 50k is equal to the old 10k test size, 1.5M is equal to the old 300k test size
+    integer            seed                  = 28931467;
+    integer            cycles_per_test       = 50000; // 50k is equal to the old 10k test size, 1.5M is equal to the old 300k test size
+    integer            addition_errors       = 0;
+    integer            subtraction_errors    = 0;
+    integer            multiplication_errors = 0;
+    integer            division_errors       = 0;
+    integer            square_root_errors    = 0;
+    integer            float_to_int_errors   = 0;
+    integer            total_errors          = 0;
     logic      [2:0]   operation;
     logic      [31:0]  binary_a;
     logic      [31:0]  binary_b;
@@ -126,7 +132,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd4);
+            op              = $urandom_range(3'd0, 3'd5);
             operand_a       = rand_float();
             operand_b       = rand_float();
             op_queue.push_front(op);
@@ -141,7 +147,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd4);
+            op              = $urandom_range(3'd0, 3'd5);
             operand_a       = $urandom();
             operand_b       = $urandom();
             op_queue.push_front(op);
@@ -150,42 +156,52 @@ module pipelined_fpu_tb();
         end
 
 
-        $display("Total Errors: %d", errors);
+        total_errors = addition_errors + subtraction_errors + multiplication_errors + division_errors + square_root_errors + float_to_int_errors;
+
+
+        // print out total number of errors
+        $display("Addition Errors:       %d", addition_errors);
+        $display("Subtraction Errors:    %d", subtraction_errors);
+        $display("Multiplication Errors: %d", multiplication_errors);
+        $display("Division Errors:       %d", division_errors);
+        $display("Square Root Errors:    %d", square_root_errors);
+        $display("Float To Int Errors:   %d", float_to_int_errors);
+        $display("Total Errors:          %d", total_errors);
 
         $stop;
     end
 
 
     always begin
-        @(posedge clk)
-        #10
-        wait(valid)
-        operation       = op_queue.pop_back();
-        binary_a        = a_queue.pop_back();
-        binary_b        = b_queue.pop_back();
-        float_a         = $bitstoshortreal(binary_a);
-        float_b         = $bitstoshortreal(binary_b);
-        float_result    = $bitstoshortreal(result);
-        expected_result = expected(operation, binary_a, binary_b, float_a, float_b);
+        @(negedge clk)
+        if(valid) begin
+            operation       = op_queue.pop_back();
+            binary_a        = a_queue.pop_back();
+            binary_b        = b_queue.pop_back();
+            float_a         = $bitstoshortreal(binary_a);
+            float_b         = $bitstoshortreal(binary_b);
+            float_result    = $bitstoshortreal(result);
+            expected_result = expected(operation, binary_a, binary_b, float_a, float_b);
 
-        if(result != expected_result) begin
-            case(operation)
-                3'd0: $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
-                3'd1: $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
-                3'd2: $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
-                3'd3: $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result));
-                3'd4: $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g", float_b, float_result, $bitstoshortreal(expected_result));
-            endcase
+            if(result != expected_result) begin
+                case(operation)
+                    3'd0: begin $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); addition_errors++;       end
+                    3'd1: begin $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); subtraction_errors++;    end
+                    3'd2: begin $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); multiplication_errors++; end
+                    3'd3: begin $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); division_errors++;       end
+                    3'd4: begin $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g", float_b, float_result, $bitstoshortreal(expected_result));           square_root_errors++;    end
+                    3'd5: begin $warning("Result Miss Match on: floatToInt (%.9g) got: %d expected: %d", float_b, signed'(result), signed'(expected_result));              float_to_int_errors++;   end
+                endcase
 
-            $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
-                         result[31],          result[30:23],          result[22:0],
-                expected_result[31], expected_result[30:23], expected_result[22:0],
-            );
-            $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
-                         result[31],          result[30:23],          result[22:0],
-                expected_result[31], expected_result[30:23], expected_result[22:0],
-            );
-            errors++;
+                $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+                $display("decimal got      - sign: %b exponent: %d fraction: %d\ndecimal expected - sign: %b exponent: %d fraction: %d\n",
+                             result[31],          result[30:23],          result[22:0],
+                    expected_result[31], expected_result[30:23], expected_result[22:0],
+                );
+            end
         end
     end
     // synopsys translate_on
@@ -273,9 +289,13 @@ module pipelined_fpu_tb();
 
 
     function logic [31:0] expected(logic [2:0] operation, logic [31:0] binary_a, logic[31:0] binary_b, shortreal float_a, shortreal float_b);
-        automatic logic  [31:0]  temp;
-        automatic logic          a_denorm = ~|binary_a[30:23] & |binary_a[22:0];
-        automatic logic          b_denorm = ~|binary_b[30:23] & |binary_b[22:0];
+        logic  [31:0]  temp;
+        logic          a_denorm;
+        logic          b_denorm;
+
+
+        a_denorm = ~|binary_a[30:23] & |binary_a[22:0];
+        b_denorm = ~|binary_b[30:23] & |binary_b[22:0];
 
 
         float_a = (a_denorm) ? $bitstoshortreal({binary_a[31], 8'd0, 23'd0}) : float_a;
@@ -288,12 +308,48 @@ module pipelined_fpu_tb();
             3'd2:    temp = $shortrealtobits(float_a * float_b);
             3'd3:    temp = $shortrealtobits(float_a / float_b);
             3'd4:    temp = $shortrealtobits($sqrt(float_b));
+            3'd5:    temp = shortrealtoint(float_b);
             default: temp = {1'b0, 8'd0, 23'd0};
         endcase
 
-        // check if the temp result was denormal, if so output zero instead of denormal.
-        expected = (~|temp[30:23] & |temp[22:0]) ? {temp[31], 8'd0, 23'd0} : temp;
+        // first check that we aren't doing a float to int conversion then check if the temp result was denormal, if so output zero instead of denormal.
+        expected = ((operation != 3'd5) & (~|temp[30:23] & |temp[22:0])) ? {temp[31], 8'd0, 23'd0} : temp;
     endfunction
+
+
+    function logic [31:0] shortrealtoint(shortreal value);
+        logic              [31:0]  binary_value;
+        shortreal                  fractional_part;
+        logic      signed  [31:0]  integer_part;
+
+
+        binary_value = $shortrealtobits(value);
+
+        // check for not a number and return minumum possible value if it is a nan.
+        if(&binary_value[30:23] & |binary_value[22:0])
+            return -32'd2147483648;
+
+        // +/- 2147483584 any float equal to or larger than this value will convert to -2147483648
+        // since we are converting from an unsigned fraction to a signed number we must add a leading zero bit
+        // before we negate the value, this leads to the max postive value being 7FFFFF80 in hex.
+        // which is 2,147,483,520 in decimal. that means a 24-bit fraction with all ones and an
+        // exponent of 30 is the largest float that can be converted.
+        if((value >= 2147483584.0) || (value <= -2147483584.0))
+            return -32'd2147483648;
+
+        integer_part    = $floor(value);
+        fractional_part = value - integer_part;
+
+        // make sure value is rounded properly.
+        if(fractional_part < 0.5)
+            return integer_part;
+        if(fractional_part == 0.5)
+            return (integer_part[0]) ? (integer_part + 32'd1) : integer_part;
+        else
+            return integer_part + 32'd1;
+
+    endfunction
+
 
 endmodule
 

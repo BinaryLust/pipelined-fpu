@@ -13,7 +13,7 @@ module result_selecter(
     input   logic                                [23:0]  operand_fraction_b,
     input   logic                                        result_sign,
     input   logic                                [9:0]   result_exponent,
-    input   logic                                [24:0]  result_fraction,
+    input   logic                                [31:0]  result_fraction,       // is [xx.xxxx...] format with 2 integer bits, 30 fractional bits
 
     output  logic                                [31:0]  result
     );
@@ -46,6 +46,7 @@ module result_selecter(
         .operand_sign_a,
         .operand_sign_b,
         .result_sign,
+        .result_fraction,
         .result_31                    (result[31])
     );
 
@@ -56,6 +57,7 @@ module result_selecter(
         .operand_exponent_a,
         .operand_exponent_b,
         .result_exponent,
+        .result_fraction,
         .result_30_23                 (result[30:23])
     );
 
