@@ -14,7 +14,21 @@ package operand;
 endpackage
 
 
-package calculation;
+package calc1;
+
+    typedef  enum  logic  [2:0] {
+        A        = 3'd0,
+        B        = 3'd1,
+        ADD      = 3'd2,
+        SUB      = 3'd3,
+        B_SHR    = 3'd4,
+        DONTCARE = 3'd?
+    } exponent_select;
+
+endpackage
+
+
+package calc2;
 
     typedef  enum  logic  [2:0] {
         ADD      = 3'd0,
@@ -23,7 +37,7 @@ package calculation;
         DIV      = 3'd3,
         SQRT     = 3'd4,
         DONTCARE = 3'd?
-    } calculation_select;
+    } fraction_select;
 
 endpackage
 

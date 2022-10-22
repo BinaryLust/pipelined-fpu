@@ -3,7 +3,8 @@
 module calculation_unit(
     input   logic                                    clk,
     input   logic                                    reset,
-    input   calculation::calculation_select          calculation_select,
+    input   calc1::exponent_select                   calculation_exponent_select,
+    input   calc2::fraction_select                   calculation_fraction_select,
     input   logic                                    division_mode,
     input   logic                                    division_op,
     input   logic                            [7:0]   aligned_exponent_a,
@@ -44,7 +45,7 @@ module calculation_unit(
 
     calculation_unit_exponent_selecter
     calculation_unit_exponent_selecter(
-        .calculation_select,
+        .calculation_exponent_select,
         .aligned_exponent_a,
         .aligned_exponent_b,
         .exponent_adder,
@@ -94,7 +95,7 @@ module calculation_unit(
 
     calculation_unit_fraction_selecter
     calculation_unit_fraction_selecter(
-        .calculation_select,
+        .calculation_fraction_select,
         .fraction_adder,
         .fraction_subtractor,
         .fraction_multiplier,

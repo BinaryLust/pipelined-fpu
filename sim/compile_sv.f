@@ -10,7 +10,9 @@
 ../rtl/aligner/aligner_operand_exchanger.sv
 ../rtl/aligner/aligner_right_shifter.sv
 ../rtl/aligner/aligner.sv
-../rtl/aligned_fraction_selecter/aligned_fraction_selecter_a.sv
+../rtl/aligned/aligned_fraction_selecter_a.sv
+../rtl/aligned/aligned_exponent_selecter_b.sv
+../rtl/aligned/aligned_fraction_selecter_b.sv
 ../rtl/calculation_unit/multi_norm_combined.sv
 ../rtl/calculation_unit/calculation_unit_exponent_adder.sv
 ../rtl/calculation_unit/calculation_unit_exponent_subtractor.sv

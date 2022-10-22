@@ -33,7 +33,7 @@ module normalizer(
 
     leading_zeros_detector
     normalizer_leading_zeros_detector(
-        .value          (calculated_fraction[47:24]), // shouldn't this be 26-bits at the very least?
+        .value          (calculated_fraction[47:16]),
         .zeros          (normalize_shift_count)
     );
 

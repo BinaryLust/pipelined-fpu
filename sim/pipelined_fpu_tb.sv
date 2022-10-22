@@ -63,14 +63,23 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed                  = 28931467;
+    integer            seed                  = 73489;
     integer            cycles_per_test       = 50000; // 50k is equal to the old 10k test size, 1.5M is equal to the old 300k test size
+    integer            addition_ops          = 0;
+    integer            subtraction_ops       = 0;
+    integer            multiplication_ops    = 0;
+    integer            division_ops          = 0;
+    integer            square_root_ops       = 0;
+    integer            float_to_int_ops      = 0;
+    integer            int_to_float_ops      = 0;
+    integer            total_ops             = 0;
     integer            addition_errors       = 0;
     integer            subtraction_errors    = 0;
     integer            multiplication_errors = 0;
     integer            division_errors       = 0;
     integer            square_root_errors    = 0;
     integer            float_to_int_errors   = 0;
+    integer            int_to_float_errors   = 0;
     integer            total_errors          = 0;
     logic      [2:0]   operation;
     logic      [31:0]  binary_a;
@@ -132,7 +141,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd5);
+            op              = $urandom_range(3'd0, 3'd6);
             operand_a       = rand_float();
             operand_b       = rand_float();
             op_queue.push_front(op);
@@ -147,7 +156,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd5);
+            op              = $urandom_range(3'd0, 3'd6);
             operand_a       = $urandom();
             operand_b       = $urandom();
             op_queue.push_front(op);
@@ -156,17 +165,19 @@ module pipelined_fpu_tb();
         end
 
 
-        total_errors = addition_errors + subtraction_errors + multiplication_errors + division_errors + square_root_errors + float_to_int_errors;
+        total_ops    = addition_ops + subtraction_ops + multiplication_ops + division_ops + square_root_ops + float_to_int_ops + int_to_float_ops;
+        total_errors = addition_errors + subtraction_errors + multiplication_errors + division_errors + square_root_errors + float_to_int_errors + int_to_float_errors;
 
 
         // print out total number of errors
-        $display("Addition Errors:       %d", addition_errors);
-        $display("Subtraction Errors:    %d", subtraction_errors);
-        $display("Multiplication Errors: %d", multiplication_errors);
-        $display("Division Errors:       %d", division_errors);
-        $display("Square Root Errors:    %d", square_root_errors);
-        $display("Float To Int Errors:   %d", float_to_int_errors);
-        $display("Total Errors:          %d", total_errors);
+        $display("Addition       Ops: %d  Errors: %d", addition_ops,       addition_errors);
+        $display("Subtraction    Ops: %d  Errors: %d", subtraction_ops,    subtraction_errors);
+        $display("Multiplication Ops: %d  Errors: %d", multiplication_ops, multiplication_errors);
+        $display("Division       Ops: %d  Errors: %d", division_ops,       division_errors);
+        $display("Square Root    Ops: %d  Errors: %d", square_root_ops,    square_root_errors);
+        $display("Float To Int   Ops: %d  Errors: %d", float_to_int_ops,   float_to_int_errors);
+        $display("Int To Float   Ops: %d  Errors: %d", int_to_float_ops,   int_to_float_errors);
+        $display("Total          Ops: %d  Errors: %d", total_ops,          total_errors);
 
         $stop;
     end
@@ -183,14 +194,27 @@ module pipelined_fpu_tb();
             float_result    = $bitstoshortreal(result);
             expected_result = expected(operation, binary_a, binary_b, float_a, float_b);
 
+            // keep track of the total of each type of operation that has completed.
+            case(operation)
+                3'd0: addition_ops++;
+                3'd1: subtraction_ops++;
+                3'd2: multiplication_ops++;
+                3'd3: division_ops++;
+                3'd4: square_root_ops++;
+                3'd5: float_to_int_ops++;
+                3'd6: int_to_float_ops++;
+            endcase
+
+            // check for errors and record the total number of them for each operation type.
             if(result != expected_result) begin
                 case(operation)
-                    3'd0: begin $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); addition_errors++;       end
-                    3'd1: begin $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); subtraction_errors++;    end
-                    3'd2: begin $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); multiplication_errors++; end
-                    3'd3: begin $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g", float_a, float_b, float_result, $bitstoshortreal(expected_result)); division_errors++;       end
-                    3'd4: begin $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g", float_b, float_result, $bitstoshortreal(expected_result));           square_root_errors++;    end
-                    3'd5: begin $warning("Result Miss Match on: floatToInt (%.9g) got: %d expected: %d", float_b, signed'(result), signed'(expected_result));              float_to_int_errors++;   end
+                    3'd0: begin $warning("Result Miss Match on: %.9g + %.9g got: %.9g expected: %.9g",       float_a, float_b, float_result, $bitstoshortreal(expected_result));  addition_errors++;       end
+                    3'd1: begin $warning("Result Miss Match on: %.9g - %.9g got: %.9g expected: %.9g",       float_a, float_b, float_result, $bitstoshortreal(expected_result));  subtraction_errors++;    end
+                    3'd2: begin $warning("Result Miss Match on: %.9g * %.9g got: %.9g expected: %.9g",       float_a, float_b, float_result, $bitstoshortreal(expected_result));  multiplication_errors++; end
+                    3'd3: begin $warning("Result Miss Match on: %.9g / %.9g got: %.9g expected: %.9g",       float_a, float_b, float_result, $bitstoshortreal(expected_result));  division_errors++;       end
+                    3'd4: begin $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",        float_b, float_result, $bitstoshortreal(expected_result));           square_root_errors++;    end
+                    3'd5: begin $warning("Result Miss Match on: float_to_int (%.9g) got: %d expected: %d",   float_b, signed'(result), signed'(expected_result));                 float_to_int_errors++;   end
+                    3'd6: begin $warning("Result Miss Match on: int_to_float (%d) got: %.9g expected: %.9g", signed'(binary_b), float_result, $bitstoshortreal(expected_result)); int_to_float_errors++;   end
                 endcase
 
                 $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
@@ -309,6 +333,7 @@ module pipelined_fpu_tb();
             3'd3:    temp = $shortrealtobits(float_a / float_b);
             3'd4:    temp = $shortrealtobits($sqrt(float_b));
             3'd5:    temp = shortrealtoint(float_b);
+            3'd6:    temp = $shortrealtobits(shortreal'(signed'(binary_b)));
             default: temp = {1'b0, 8'd0, 23'd0};
         endcase
 
