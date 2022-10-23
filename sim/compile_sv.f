@@ -3,7 +3,10 @@
 -sv 
 
 ../rtl/pipelined_fpu_packages.sv
-../rtl/leading_zeros_detector/sub_zeros_detector.sv
+../rtl/leading_zeros_detector/level_0_detector.sv
+../rtl/leading_zeros_detector/level_1_detector.sv
+../rtl/leading_zeros_detector/level_2_detector.sv
+../rtl/leading_zeros_detector/level_3_detector.sv
 ../rtl/leading_zeros_detector/leading_zeros_detector.sv
 ../rtl/control_logic/control_logic.sv
 ../rtl/exponent_bias_remover/exponent_bias_remover.sv

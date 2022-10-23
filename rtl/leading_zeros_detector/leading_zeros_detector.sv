@@ -1,91 +1,145 @@
 
 
+// this is designed to be optimized for an Altera/Intel Max 10 FPGA with 4 input LUT's.
+// the logic is 4 LUT's deep when synthesized, and will run at about 403 MHz Fmax (bounded to 250 Mhz because that's as fast as it can go)
+// if registered at the inputs and outputs. it will use 56 LUT's for a 32-bit detector.
+// the original leading zeros detector could only run at 323 Mhz Fmax and was 6 LUT's layers deep.
+
+
 module leading_zeros_detector(
-    input   logic  [31:0]  value,
-    output  logic  [4:0]   zeros
+    input   logic  [31:0]  bits,
+    output  logic  [4:0]   zeros,
+    output  logic          all_zeros
     );
 
 
-    logic  [7:0][1:0]  zero_group;
-    logic  [7:0]       all_zeros;
+    // count are the lower bits, zeros is the upper most bit of the count.
+    // it is split off just to make things easier to read.
+    logic  [7:0][1:0]  level_0_count;
+    logic  [7:0]       level_0_zeros;
+    logic  [3:0][2:0]  level_1_count;
+    logic  [3:0]       level_1_zeros;
+    logic  [1:0][3:0]  level_2_count;
+    logic  [1:0]       level_2_zeros;
 
 
-    always_comb begin
-        casex(all_zeros)
-            8'b0???_????: zeros = 5'd0  + zero_group[7];
-            8'b10??_????: zeros = 5'd4  + zero_group[6];
-            8'b110?_????: zeros = 5'd8  + zero_group[5];
-            8'b1110_????: zeros = 5'd12 + zero_group[4];
-            8'b1111_0???: zeros = 5'd16 + zero_group[3];
-            8'b1111_10??: zeros = 5'd20 + zero_group[2];
-            8'b1111_110?: zeros = 5'd24 + zero_group[1];
-            8'b1111_1110: zeros = 5'd28 + zero_group[0];
-            8'b1111_1111: zeros = 5'd31;                 // this should actually 32 but we are limiting it to 31 since that is the largest value possible here
-        endcase
-    end
+    // level 0 modules
+    level_0_detector
+    level_0_detector_7(
+        .bits             (bits[31:28]),
+        .level_0_count    (level_0_count[7]),
+        .level_0_zeros    (level_0_zeros[7])
+    );
 
+    level_0_detector
+    level_0_detector_6(
+        .bits             (bits[27:24]),
+        .level_0_count    (level_0_count[6]),
+        .level_0_zeros    (level_0_zeros[6])
+    );
 
-    sub_zeros_detector
-    sub_zeros_detector0(
-        .value       (value[3:0]),
-        .zeros       (zero_group[0]),
-        .all_zeros   (all_zeros[0])
+    level_0_detector
+    level_0_detector_5(
+        .bits             (bits[23:20]),
+        .level_0_count    (level_0_count[5]),
+        .level_0_zeros    (level_0_zeros[5])
+    );
+
+    level_0_detector
+    level_0_detector_4(
+        .bits             (bits[19:16]),
+        .level_0_count    (level_0_count[4]),
+        .level_0_zeros    (level_0_zeros[4])
+    );
+
+    level_0_detector
+    level_0_detector_3(
+        .bits             (bits[15:12]),
+        .level_0_count    (level_0_count[3]),
+        .level_0_zeros    (level_0_zeros[3])
+    );
+
+    level_0_detector
+    level_0_detector_2(
+        .bits             (bits[11:8]),
+        .level_0_count    (level_0_count[2]),
+        .level_0_zeros    (level_0_zeros[2])
+    );
+
+    level_0_detector
+    level_0_detector_1(
+        .bits             (bits[7:4]),
+        .level_0_count    (level_0_count[1]),
+        .level_0_zeros    (level_0_zeros[1])
+    );
+
+    level_0_detector
+    level_0_detector_0(
+        .bits             (bits[3:0]),
+        .level_0_count    (level_0_count[0]),
+        .level_0_zeros    (level_0_zeros[0])
     );
 
 
-    sub_zeros_detector
-    sub_zeros_detector1(
-        .value       (value[7:4]),
-        .zeros       (zero_group[1]),
-        .all_zeros   (all_zeros[1])
+    // level 1 modules
+    level_1_detector
+    level_1_detector_3(
+        .level_0_count    (level_0_count[7:6]),
+        .level_0_zeros    (level_0_zeros[7:6]),
+        .level_1_count    (level_1_count[3]),
+        .level_1_zeros    (level_1_zeros[3])
+    );
+
+    level_1_detector
+    level_1_detector_2(
+        .level_0_count    (level_0_count[5:4]),
+        .level_0_zeros    (level_0_zeros[5:4]),
+        .level_1_count    (level_1_count[2]),
+        .level_1_zeros    (level_1_zeros[2])
+    );
+
+    level_1_detector
+    level_1_detector_1(
+        .level_0_count    (level_0_count[3:2]),
+        .level_0_zeros    (level_0_zeros[3:2]),
+        .level_1_count    (level_1_count[1]),
+        .level_1_zeros    (level_1_zeros[1])
+    );
+
+    level_1_detector
+    level_1_detector_0(
+        .level_0_count    (level_0_count[1:0]),
+        .level_0_zeros    (level_0_zeros[1:0]),
+        .level_1_count    (level_1_count[0]),
+        .level_1_zeros    (level_1_zeros[0])
     );
 
 
-    sub_zeros_detector
-    sub_zeros_detector2(
-        .value       (value[11:8]),
-        .zeros       (zero_group[2]),
-        .all_zeros   (all_zeros[2])
+    // level 2 modules
+    level_2_detector
+    level_2_detector_1(
+        .level_1_count    (level_1_count[3:2]),
+        .level_1_zeros    (level_1_zeros[3:2]),
+        .level_2_count    (level_2_count[1]),
+        .level_2_zeros    (level_2_zeros[1])
+    );
+
+    level_2_detector
+    level_2_detector_0(
+        .level_1_count    (level_1_count[1:0]),
+        .level_1_zeros    (level_1_zeros[1:0]),
+        .level_2_count    (level_2_count[0]),
+        .level_2_zeros    (level_2_zeros[0])
     );
 
 
-    sub_zeros_detector
-    sub_zeros_detector3(
-        .value       (value[15:12]),
-        .zeros       (zero_group[3]),
-        .all_zeros   (all_zeros[3])
-    );
-
-
-    sub_zeros_detector
-    sub_zeros_detector4(
-        .value       (value[19:16]),
-        .zeros       (zero_group[4]),
-        .all_zeros   (all_zeros[4])
-    );
-
-
-    sub_zeros_detector
-    sub_zeros_detector5(
-        .value       (value[23:20]),
-        .zeros       (zero_group[5]),
-        .all_zeros   (all_zeros[5])
-    );
-
-
-    sub_zeros_detector
-    sub_zeros_detector6(
-        .value       (value[27:24]),
-        .zeros       (zero_group[6]),
-        .all_zeros   (all_zeros[6])
-    );
-
-
-    sub_zeros_detector
-    sub_zeros_detector7(
-        .value       (value[31:28]),
-        .zeros       (zero_group[7]),
-        .all_zeros   (all_zeros[7])
+    // level 3 module
+    level_3_detector
+    level_3_detector(
+        .level_2_count    (level_2_count[1:0]),
+        .level_2_zeros    (level_2_zeros[1:0]),
+        .level_3_count    (zeros),
+        .level_3_zeros    (all_zeros)
     );
 
 

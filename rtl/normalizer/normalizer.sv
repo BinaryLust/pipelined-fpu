@@ -32,9 +32,10 @@ module normalizer(
 
 
     leading_zeros_detector
-    normalizer_leading_zeros_detector(
-        .value          (calculated_fraction[47:16]),
-        .zeros          (normalize_shift_count)
+    leading_zeros_detector(
+        .bits           (calculated_fraction[47:16]),
+        .zeros          (normalize_shift_count),
+        .all_zeros      ()
     );
 
 
