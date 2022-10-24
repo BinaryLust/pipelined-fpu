@@ -63,7 +63,7 @@ module pipelined_fpu_tb();
     /*********************************************************************************************************************************************************/
 
 
-    integer            seed                  = 73489;
+    integer            seed                  = 3458976;
     integer            cycles_per_test       = 50000; // 50k is equal to the old 10k test size, 1.5M is equal to the old 300k test size
     integer            addition_ops          = 0;
     integer            subtraction_ops       = 0;
@@ -72,6 +72,7 @@ module pipelined_fpu_tb();
     integer            square_root_ops       = 0;
     integer            float_to_int_ops      = 0;
     integer            int_to_float_ops      = 0;
+    integer            absolute_value_ops    = 0;
     integer            total_ops             = 0;
     integer            addition_errors       = 0;
     integer            subtraction_errors    = 0;
@@ -80,6 +81,7 @@ module pipelined_fpu_tb();
     integer            square_root_errors    = 0;
     integer            float_to_int_errors   = 0;
     integer            int_to_float_errors   = 0;
+    integer            absolute_value_errors = 0;
     integer            total_errors          = 0;
     logic      [2:0]   operation;
     logic      [31:0]  binary_a;
@@ -141,7 +143,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd6);
+            op              = $urandom_range(3'd0, 3'd7);
             operand_a       = rand_float();
             operand_b       = rand_float();
             op_queue.push_front(op);
@@ -156,7 +158,7 @@ module pipelined_fpu_tb();
             #10
             wait(~stall)
             start           = 1'b1;
-            op              = $urandom_range(3'd0, 3'd6);
+            op              = $urandom_range(3'd0, 3'd7);
             operand_a       = $urandom();
             operand_b       = $urandom();
             op_queue.push_front(op);
@@ -165,19 +167,20 @@ module pipelined_fpu_tb();
         end
 
 
-        total_ops    = addition_ops + subtraction_ops + multiplication_ops + division_ops + square_root_ops + float_to_int_ops + int_to_float_ops;
-        total_errors = addition_errors + subtraction_errors + multiplication_errors + division_errors + square_root_errors + float_to_int_errors + int_to_float_errors;
+        total_ops    = addition_ops + subtraction_ops + multiplication_ops + division_ops + square_root_ops + float_to_int_ops + int_to_float_ops + absolute_value_ops;
+        total_errors = addition_errors + subtraction_errors + multiplication_errors + division_errors + square_root_errors + float_to_int_errors + int_to_float_errors + absolute_value_errors;
 
 
         // print out total number of errors
-        $display("Addition       Ops: %d  Errors: %d", addition_ops,       addition_errors);
-        $display("Subtraction    Ops: %d  Errors: %d", subtraction_ops,    subtraction_errors);
-        $display("Multiplication Ops: %d  Errors: %d", multiplication_ops, multiplication_errors);
-        $display("Division       Ops: %d  Errors: %d", division_ops,       division_errors);
-        $display("Square Root    Ops: %d  Errors: %d", square_root_ops,    square_root_errors);
-        $display("Float To Int   Ops: %d  Errors: %d", float_to_int_ops,   float_to_int_errors);
-        $display("Int To Float   Ops: %d  Errors: %d", int_to_float_ops,   int_to_float_errors);
-        $display("Total          Ops: %d  Errors: %d", total_ops,          total_errors);
+        $display("Addition        Ops: %d  Errors: %d", addition_ops,       addition_errors);
+        $display("Subtraction     Ops: %d  Errors: %d", subtraction_ops,    subtraction_errors);
+        $display("Multiplication  Ops: %d  Errors: %d", multiplication_ops, multiplication_errors);
+        $display("Division        Ops: %d  Errors: %d", division_ops,       division_errors);
+        $display("Square Root     Ops: %d  Errors: %d", square_root_ops,    square_root_errors);
+        $display("Float To Int    Ops: %d  Errors: %d", float_to_int_ops,   float_to_int_errors);
+        $display("Int To Float    Ops: %d  Errors: %d", int_to_float_ops,   int_to_float_errors);
+        $display("Absolute Value  Ops: %d  Errors: %d", absolute_value_ops, absolute_value_errors);
+        $display("Total           Ops: %d  Errors: %d", total_ops,          total_errors);
 
         $stop;
     end
@@ -192,7 +195,7 @@ module pipelined_fpu_tb();
             float_a         = $bitstoshortreal(binary_a);
             float_b         = $bitstoshortreal(binary_b);
             float_result    = $bitstoshortreal(result);
-            expected_result = expected(operation, binary_a, binary_b, float_a, float_b);
+            expected_result = expected(operation, binary_a, binary_b);
 
             // keep track of the total of each type of operation that has completed.
             case(operation)
@@ -203,6 +206,7 @@ module pipelined_fpu_tb();
                 3'd4: square_root_ops++;
                 3'd5: float_to_int_ops++;
                 3'd6: int_to_float_ops++;
+                3'd7: absolute_value_ops++;
             endcase
 
             // check for errors and record the total number of them for each operation type.
@@ -215,6 +219,7 @@ module pipelined_fpu_tb();
                     3'd4: begin $warning("Result Miss Match on: sqrt(%.9g) got: %.9g expected: %.9g",        float_b, float_result, $bitstoshortreal(expected_result));           square_root_errors++;    end
                     3'd5: begin $warning("Result Miss Match on: float_to_int (%.9g) got: %d expected: %d",   float_b, signed'(result), signed'(expected_result));                 float_to_int_errors++;   end
                     3'd6: begin $warning("Result Miss Match on: int_to_float (%d) got: %.9g expected: %.9g", signed'(binary_b), float_result, $bitstoshortreal(expected_result)); int_to_float_errors++;   end
+                    3'd7: begin $warning("Result Miss Match on: abs(%.9g) got: %.9g expected: %.9g",         float_b, float_result, $bitstoshortreal(expected_result));           absolute_value_errors++;    end
                 endcase
 
                 $display("binary  got      - sign: %b exponent: %b fraction: %b\nbinary  expected - sign: %b exponent: %b fraction: %b",
@@ -312,29 +317,41 @@ module pipelined_fpu_tb();
     endfunction
 
 
-    function logic [31:0] expected(logic [2:0] operation, logic [31:0] binary_a, logic[31:0] binary_b, shortreal float_a, shortreal float_b);
-        logic  [31:0]  temp;
-        logic          a_denorm;
-        logic          b_denorm;
+    function logic [31:0] expected(logic [2:0] operation, logic [31:0] binary_a, logic[31:0] binary_b);
+        logic              a_subnormal;
+        logic              b_subnormal;
+        logic      [31:0]  bits_a;
+        logic      [31:0]  bits_b;
+        shortreal          real_a;
+        shortreal          real_b;
+        logic      [31:0]  temp;
 
 
-        a_denorm = ~|binary_a[30:23] & |binary_a[22:0];
-        b_denorm = ~|binary_b[30:23] & |binary_b[22:0];
+        // check to see if either input is a subnormal value
+        a_subnormal = ~|binary_a[30:23] & |binary_a[22:0];
+        b_subnormal = ~|binary_b[30:23] & |binary_b[22:0];
 
 
-        float_a = (a_denorm) ? $bitstoshortreal({binary_a[31], 8'd0, 23'd0}) : float_a;
-        float_b = (b_denorm) ? $bitstoshortreal({binary_b[31], 8'd0, 23'd0}) : float_b;
+        // if the values are subnormal convert them to zero instead
+        bits_a = ((operation != 3'd6) & a_subnormal) ? {binary_a[31], 8'd0, 23'd0} : binary_a;
+        bits_b = ((operation != 3'd6) & b_subnormal) ? {binary_b[31], 8'd0, 23'd0} : binary_b;
+
+
+        // produce float values from the bits for later use
+        real_a = $bitstoshortreal(bits_a);
+        real_b = $bitstoshortreal(bits_b);
 
 
         casex(operation)
-            3'd0:    temp = $shortrealtobits(float_a + float_b);
-            3'd1:    temp = $shortrealtobits(float_a - float_b);
-            3'd2:    temp = $shortrealtobits(float_a * float_b);
-            3'd3:    temp = $shortrealtobits(float_a / float_b);
-            3'd4:    temp = $shortrealtobits($sqrt(float_b));
-            3'd5:    temp = shortrealtoint(float_b);
-            3'd6:    temp = $shortrealtobits(shortreal'(signed'(binary_b)));
-            default: temp = {1'b0, 8'd0, 23'd0};
+            3'd0:    temp = $shortrealtobits(real_a + real_b);
+            3'd1:    temp = $shortrealtobits(real_a - real_b);
+            3'd2:    temp = $shortrealtobits(real_a * real_b);
+            3'd3:    temp = $shortrealtobits(real_a / real_b);
+            3'd4:    temp = $shortrealtobits($sqrt(real_b));
+            3'd5:    temp = shortrealtoint(real_b);
+            3'd6:    temp = $shortrealtobits(shortreal'(signed'(bits_b)));
+            3'd7:    temp = {1'b0, bits_b[30:0]}; //fabs(real_b);
+            //default: temp = {1'b0, 8'd0, 23'd0};
         endcase
 
         // first check that we aren't doing a float to int conversion then check if the temp result was denormal, if so output zero instead of denormal.
@@ -372,6 +389,18 @@ module pipelined_fpu_tb();
             return (integer_part[0]) ? (integer_part + 32'd1) : integer_part;
         else
             return integer_part + 32'd1;
+
+    endfunction
+
+
+    function logic [31:0] fabs(shortreal value);
+
+
+        if((value < 0.0) | (value == -0.0))
+            return $shortrealtobits(-value);
+        else
+            return $shortrealtobits(value);
+
 
     endfunction
 
