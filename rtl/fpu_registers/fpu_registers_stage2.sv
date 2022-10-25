@@ -27,6 +27,7 @@ module fpu_registers_stage2(
     input   logic                                        normalize,
     input   logic                                        rounding_mode,
     input   logic                                [1:0]   sticky_bit_select,
+    input   logic                                        check_result,
     input   sign::sign_select                            sign_select,
     input   exponent::exponent_select                    exponent_select,
     input   fraction_msb::fraction_msb_select            fraction_msb_select,
@@ -55,6 +56,7 @@ module fpu_registers_stage2(
     output  logic                                        fpu_stage2_normalize,
     output  logic                                        fpu_stage2_rounding_mode,
     output  logic                                [1:0]   fpu_stage2_sticky_bit_select,
+    output  logic                                        fpu_stage2_check_result,
     output  sign::sign_select                            fpu_stage2_sign_select,
     output  exponent::exponent_select                    fpu_stage2_exponent_select,
     output  fraction_msb::fraction_msb_select            fpu_stage2_fraction_msb_select,
@@ -93,6 +95,7 @@ module fpu_registers_stage2(
         fpu_stage2_normalize                   <= (reset) ? 1'b0                 : (stall) ? fpu_stage2_normalize                   : normalize;
         fpu_stage2_rounding_mode               <= (reset) ? 1'b0                 : (stall) ? fpu_stage2_rounding_mode               : rounding_mode;
         fpu_stage2_sticky_bit_select           <= (reset) ? 2'd0                 : (stall) ? fpu_stage2_sticky_bit_select           : sticky_bit_select;
+        fpu_stage2_check_result                <= (reset) ? 1'b0                 : (stall) ? fpu_stage2_check_result                : check_result;
         fpu_stage2_sign_select                 <= (reset) ? sign::ZERO           : (stall) ? fpu_stage2_sign_select                 : sign_select;
         fpu_stage2_exponent_select             <= (reset) ? exponent::ZEROS      : (stall) ? fpu_stage2_exponent_select             : exponent_select;
         fpu_stage2_fraction_msb_select         <= (reset) ? fraction_msb::ZERO   : (stall) ? fpu_stage2_fraction_msb_select         : fraction_msb_select;

@@ -1,6 +1,7 @@
 
 
 module result_control_logic(
+    input   logic                                        check_result,
     input   sign::sign_select                            sign_select_in,
     input   exponent::exponent_select                    exponent_select_in,
     input   fraction_msb::fraction_msb_select            fraction_msb_select_in,
@@ -27,7 +28,7 @@ module result_control_logic(
         result_underflow = (signed'(result_exponent) <= signed'(10'd0));
 
 
-        if({sign_select_in, exponent_select_in, fraction_msb_select_in, fraction_lsbs_select_in} == {sign::RESULT, exponent::RESULT, fraction_msb::RESULT, fraction_lsbs::RESULT}) begin // only check the conditions below if the result is set to normal since they have lower priority
+        if(check_result) begin
             casex({result_zero, result_overflow, result_underflow})
                 3'b1??:  {sign_select_out, exponent_select_out, fraction_msb_select_out, fraction_lsbs_select_out} = {sign::ZERO,   exponent::ZEROS,  fraction_msb::ZERO,   fraction_lsbs::ZEROS};  // result fraction was zero so set zero as result, this has the highest priority.
                 3'b010:  {sign_select_out, exponent_select_out, fraction_msb_select_out, fraction_lsbs_select_out} = {sign::RESULT, exponent::ONES,   fraction_msb::ZERO,   fraction_lsbs::ZEROS};  // result overflowed so set infinity as result

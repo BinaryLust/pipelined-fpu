@@ -68,7 +68,7 @@
 module pipelined_fpu(
     input   logic          clk,
     input   logic          reset,
-    input   logic  [2:0]   op,
+    input   logic  [3:0]   op,
     input   logic          start,
     input   logic  [31:0]  operand_a,
     input   logic  [31:0]  operand_b,
@@ -103,6 +103,7 @@ module pipelined_fpu(
     logic                                        fpu_stage2_rounding_mode;
     logic                                [1:0]   fpu_stage2_sticky_bit_select;
     logic                                        fpu_stage2_result_sign;
+    logic                                        fpu_stage2_check_result;
     sign::sign_select                            fpu_stage2_sign_select;
     exponent::exponent_select                    fpu_stage2_exponent_select;
     fraction_msb::fraction_msb_select            fpu_stage2_fraction_msb_select;
@@ -124,6 +125,7 @@ module pipelined_fpu(
     logic                                [1:0]   fpu_stage3_sticky_bit_select;
     logic                                        fpu_stage3_result_sign;
     logic                                        fpu_stage3_result_valid;
+    logic                                        fpu_stage3_check_result;
     sign::sign_select                            fpu_stage3_sign_select;
     exponent::exponent_select                    fpu_stage3_exponent_select;
     fraction_msb::fraction_msb_select            fpu_stage3_fraction_msb_select;
@@ -184,6 +186,7 @@ module pipelined_fpu(
     logic                                [9:0]   result_exponent;
     logic                                [31:0]  result_fraction;         // is [xx.xxxx...] format with 2 integer bits, 30 fractional bits
 
+    logic                                        check_result;
     sign::sign_select                            sign_select;
     exponent::exponent_select                    exponent_select;
     fraction_msb::fraction_msb_select            fraction_msb_select;
@@ -235,6 +238,7 @@ module pipelined_fpu(
         .normalize,
         .rounding_mode,
         .sticky_bit_select,
+        .check_result,
         .sign_select,
         .exponent_select,
         .fraction_msb_select,
@@ -299,6 +303,7 @@ module pipelined_fpu(
         .normalize,
         .rounding_mode,
         .sticky_bit_select,
+        .check_result,
         .sign_select,
         .exponent_select,
         .fraction_msb_select,
@@ -326,6 +331,7 @@ module pipelined_fpu(
         .fpu_stage2_normalize,
         .fpu_stage2_rounding_mode,
         .fpu_stage2_sticky_bit_select,
+        .fpu_stage2_check_result,
         .fpu_stage2_sign_select,
         .fpu_stage2_exponent_select,
         .fpu_stage2_fraction_msb_select,
@@ -396,6 +402,7 @@ module pipelined_fpu(
         .fpu_stage2_normalize,
         .fpu_stage2_rounding_mode,
         .fpu_stage2_sticky_bit_select,
+        .fpu_stage2_check_result,
         .fpu_stage2_sign_select,
         .fpu_stage2_exponent_select,
         .fpu_stage2_fraction_msb_select,
@@ -414,6 +421,7 @@ module pipelined_fpu(
         .fpu_stage3_normalize,
         .fpu_stage3_rounding_mode,
         .fpu_stage3_sticky_bit_select,
+        .fpu_stage3_check_result,
         .fpu_stage3_sign_select,
         .fpu_stage3_exponent_select,
         .fpu_stage3_fraction_msb_select,
@@ -446,6 +454,7 @@ module pipelined_fpu(
 
     result_selecter
     result_selecter(
+        .check_result            (fpu_stage3_check_result),
         .sign_select             (fpu_stage3_sign_select),
         .exponent_select         (fpu_stage3_exponent_select),
         .fraction_msb_select     (fpu_stage3_fraction_msb_select),

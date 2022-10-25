@@ -1,6 +1,7 @@
 
 
 module result_selecter(
+    input   logic                                        check_result,
     input   sign::sign_select                            sign_select,
     input   exponent::exponent_select                    exponent_select,
     input   fraction_msb::fraction_msb_select            fraction_msb_select,
@@ -27,6 +28,7 @@ module result_selecter(
 
     result_control_logic
     result_control_logic(
+        .check_result,
         .sign_select_in               (sign_select),
         .exponent_select_in           (exponent_select),
         .fraction_msb_select_in       (fraction_msb_select),

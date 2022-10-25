@@ -3,7 +3,7 @@
 module pipelined_fpu_test_synthesis(
     input   logic          clk,
     input   logic          reset,
-    input   logic  [2:0]   op,
+    input   logic  [3:0]   op,
     input   logic          start,
     input   logic  [31:0]  operand_a,
     input   logic  [31:0]  operand_b,
@@ -14,7 +14,7 @@ module pipelined_fpu_test_synthesis(
     );
 
 
-    logic  [2:0]   fpu_stage1_op;
+    logic  [3:0]   fpu_stage1_op;
     logic          fpu_stage1_start;
     logic  [31:0]  fpu_stage1_operand_a;
     logic  [31:0]  fpu_stage1_operand_b;
